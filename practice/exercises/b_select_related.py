@@ -58,8 +58,8 @@ EXERCISES = [
              "the data rather than the row count."),
 
     E(slug="sr-only", level="hard", section=S, title="select_related + only()",
-      prompt="The 50 books with the most pages, most pages first, ties broken by the lower id. Fetch no "
-      "more columns than the grader needs (primary keys aside) and still pay a single query.",
+      prompt="The 50 longest books, most pages first, ties broken by the lower id. Fetch no more "
+             "columns than the grader needs, primary keys aside.",
       consume=lambda qs: [(b.title, b.genre, b.publisher.country) for b in qs],
       solution="Book.objects.select_related('publisher').only('title', 'genre', 'publisher__country')"
                ".order_by('-page_count', 'id')[:50]",
