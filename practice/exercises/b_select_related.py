@@ -41,14 +41,20 @@ EXERCISES = [
       consume=lambda qs: [(p.author.firstname, p.author.recommendedby and p.author.recommendedby.lastname) for p in qs],
       solution="AuthorProfile.objects.select_related('author__recommendedby').order_by('pk')[:25]",
       naive="AuthorProfile.objects.order_by('pk')[:25]",
-      order_matters=True),
+      order_matters=True,
+      notes="select_related follows a chain one JOIN per hop. The nullable hop becomes a LEFT "
+             "JOIN, so authors without a recommender still come back - with None in place of the "
+             "object."),
 
     E(slug="sr-nullable-chain", section=S, title="Chain through a nullable FK",
       prompt="The first 60 books by pk. Most books have no series.",
       consume=lambda qs: [(b.title, b.series and b.series.name, b.series and b.series.publisher.lastname) for b in qs],
       solution="Book.objects.select_related('series__publisher').order_by('pk')[:60]",
       naive="Book.objects.order_by('pk')[:60]",
-      order_matters=True),
+      order_matters=True,
+      notes="Every nullable hop is another LEFT JOIN, never another query. Notice what the naive "
+             "version costs: only books that have a series pay for it, so the query count follows "
+             "the data rather than the row count."),
 
     E(slug="sr-only", section=S, title="select_related + only()",
       prompt="The 50 books with the most pages, ordered by -page_count then id. Fetch no more "
@@ -78,7 +84,9 @@ EXERCISES = [
       solution="OrderItem.objects.filter(order__status='paid')"
                ".select_related('book', 'order__user').order_by('pk')[:40]",
       naive="OrderItem.objects.filter(order__status='paid').order_by('pk')[:40]",
-      order_matters=True),
+      order_matters=True,
+      notes="Two independent branches from one row are two JOINs in one query, and order__user "
+             "is two hops along one path. Breadth and depth both stay free."),
 
     E(slug="sr-filter-is-not-select", section=S, title="Filtering joins, but does not select",
       prompt="The first 40 books (by pk) whose publisher's country is 'JP' or 'DE'.",
@@ -121,5 +129,8 @@ EXERCISES = [
       consume=lambda qs: [(x.store.name, x.book.title, x.quantity) for x in qs],
       solution="StoreStock.objects.select_related('store', 'book').order_by('pk')[:40]",
       naive="StoreStock.objects.order_by('pk')[:40]",
-      order_matters=True),
+      order_matters=True,
+      notes="A through row is an ordinary model with two forward FKs, so both sides come back in "
+             "one JOIN each - which is why reaching for the through model is cheap once you need "
+             "its own columns."),
 ]

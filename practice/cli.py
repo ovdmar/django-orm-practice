@@ -235,7 +235,7 @@ class Session:
             if budget < 2:
                 break
             prefix = f"{i}. " + (f"x{repeats} " if repeats > 1 else "")
-            lines = engine.wrap_sql(engine.shorten_sql(sql), width, prefix=prefix)
+            lines = engine.wrap_sql(engine.shorten_sql(sql, width), width, prefix=prefix)
             lines = engine.pick_clauses(lines, max(2, budget // left))
             out += [(line, dim) for line in lines]
             budget -= len(lines)
@@ -520,15 +520,18 @@ class Session:
 
     def solution(self, ex):
         ink, ref = self.ink, self.reference(ex)
+        width = min(shutil.get_terminal_size((80, 24)).columns, 110)
         progress.mark_shown(self.data, ex)
         print(ink.bold(f"  reference solution - {ex.title}:"))
         for line in ex.solution.split("\n"):
-            print(ink.green("    " + line))
+            for piece in self._soft(line, width, "    ", "      "):
+                print(ink.green(piece))
         print(ink.dim(f"    -> {ref.nqueries} quer{'y' if ref.nqueries == 1 else 'ies'}, "
                       f"answer: ") + engine.preview(ref.value, limit=3))
         if ex.notes:
             print()
-            print(ink.dim("    " + ex.notes.replace("\n", "\n    ")))
+            for piece in self._soft(" ".join(ex.notes.split()), width, "    "):
+                print(ink.dim(piece))
 
     def diff(self, ex):
         ink, ref = self.ink, self.reference(ex)
@@ -606,7 +609,7 @@ class Session:
         width = min(shutil.get_terminal_size((80, 24)).columns, 120) - 4
         for i, (sql, repeats) in enumerate(self.last.shapes()[:limit], 1):
             prefix = f"{i}. " + (f"x{repeats} " if repeats > 1 else "")
-            for line in engine.wrap_sql(engine.shorten_sql(sql), width, prefix=prefix):
+            for line in engine.wrap_sql(engine.shorten_sql(sql, width), width, prefix=prefix):
                 print(self.ink.dim("  " + line))
         extra = len(self.last.shapes()) - limit
         if extra > 0:

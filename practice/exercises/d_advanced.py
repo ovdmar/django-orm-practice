@@ -9,7 +9,9 @@ EXERCISES = [
       prompt="(lastname, number of books, average book price) for every publisher, ordered by pk.",
       solution="Publisher.objects.annotate(n=Count('books'), a=Avg('books__price')).order_by('pk')"
                ".values_list('lastname', 'n', 'a')",
-      order_matters=True),
+      order_matters=True,
+      notes="annotate() over a join groups by the outer model's primary key, so every aggregate "
+             "in the same call is computed in that one GROUP BY pass."),
 
     E(slug="ad-count-distinct", section=S, title="The double-join multiplication trap",
       prompt="(lastname, number of books, number of followers) for authors with pk <= 15, ordered by pk. "
@@ -31,7 +33,10 @@ EXERCISES = [
       naive="[(b.title, (r := b.reviews.order_by('-created', '-pk').first()) and r.user.username)\n"
             " for b in Book.objects.filter(pk__lte=20).order_by('pk')]",
       order_matters=True,
-      hints=["OuterRef('pk') refers to the outer row; slice the subquery to [:1] so it returns one value."]),
+      hints=["OuterRef('pk') refers to the outer row; slice the subquery to [:1] so it returns one value."],
+      notes="A correlated subquery is evaluated per outer row by the database, but it travels as "
+             "one statement. Slicing it to [:1] is what makes it a single value Django can "
+             "select."),
 
     E(slug="ad-exists", section=S, title="Exists()",
       prompt="Author objects who have at least one book carrying a 5-star review. No duplicated rows.",
@@ -47,19 +52,26 @@ EXERCISES = [
                "ranked.filter(r=1).order_by('genre').values_list('genre', 'title', 'price')",
       order_matters=True,
       hints=["Window(RowNumber(), partition_by=…, order_by=…); since Django 4.2 you can filter on the "
-             "window annotation and Django wraps it in a subquery."]),
+             "window annotation and Django wraps it in a subquery."],
+      notes="A window function computes a value per row over a partition without collapsing the "
+             "rows, which is what makes best-per-group possible at all. Django wraps the query in "
+             "a subquery so the window result can be filtered."),
 
     E(slug="ad-units-sold", section=S, title="Sum across a reverse FK",
       prompt="The 10 best selling books: (title, total quantity ordered), ordered by -quantity then id. "
       "Books that were never ordered are out.",
       solution="Book.objects.annotate(sold=Sum('order_items__quantity')).exclude(sold=None)"
                ".order_by('-sold', 'id').values_list('title', 'sold')[:10]",
-      order_matters=True),
+      order_matters=True,
+      notes="Sum over a reverse FK joins and groups. Dropping the NULL sums is how you say you "
+             "only want books that actually sold - the aggregate equivalent of an inner join."),
 
     E(slug="ad-annotate-and-prefetch", section=S, title="annotate + prefetch in two queries",
       prompt="Authors with pk <= 12. The grader reads a.nb (their book count) and their books.",
       consume=lambda qs: [(a.lastname, a.nb, sorted(b.title for b in a.books.all())) for a in qs],
-      solution="Author.objects.filter(pk__lte=12).annotate(nb=Count('books')).prefetch_related('books')"),
+      solution="Author.objects.filter(pk__lte=12).annotate(nb=Count('books')).prefetch_related('books')",
+      notes="The annotation rides along on the first query and costs nothing extra. The prefetch "
+             "is the second query, exactly as it would have been on its own."),
 
     E(slug="ad-conditional-count", section=S, title="Conditional aggregation",
       prompt="For publishers with pk <= 10, ordered by pk: (lastname, #books under 20, #books from 20 to "
@@ -70,7 +82,10 @@ EXERCISES = [
                "    dear=Count('books', filter=Q(books__price__gt=40)),\n"
                ").order_by('pk').values_list('lastname', 'cheap', 'mid', 'dear')",
       order_matters=True,
-      hints=["Aggregates take a filter= argument: Count('books', filter=Q(...))."]),
+      hints=["Aggregates take a filter= argument: Count('books', filter=Q(...))."],
+      notes="filter= inside an aggregate becomes a FILTER (or CASE) clause, so several "
+             "differently-filtered counts share one scan of the same join instead of one query "
+             "each."),
 
     E(slug="ad-avg-by-genre", section=S, title="Group by a joined column",
       prompt="Average review rating per book genre: (genre, average rating), ordered by genre.",
@@ -115,26 +130,36 @@ EXERCISES = [
       solution="avg = (Book.objects.filter(publisher=OuterRef('publisher')).values('publisher')\n"
                "       .annotate(a=Avg('price')).values('a'))\n"
                "Book.objects.annotate(pa=Subquery(avg)).filter(price__gt=F('pa')).count()",
-      hints=["Group the subquery by the outer publisher with .values('publisher').annotate(...)."]),
+      hints=["Group the subquery by the outer publisher with .values('publisher').annotate(...)."],
+      notes="Comparing a row against an aggregate of its own group needs that aggregate as a "
+             "subquery. A plain annotate would group the outer query too, and you would be "
+             "comparing something else."),
 
     E(slug="ad-two-hops", section=S, title="Two hops on a self FK",
       prompt="Author objects who were recommended by someone who was themselves recommended by author "
       "pk=1.",
-      solution="Author.objects.filter(recommendedby__recommendedby_id=1)"),
+      solution="Author.objects.filter(recommendedby__recommendedby_id=1)",
+      notes="Every __ hop is a JOIN, a self join included - Django just aliases the table again. "
+             "Two hops is still one query."),
 
     E(slug="ad-annotated-prefetch", section=S, title="Annotation inside a prefetch",
       prompt="Publishers with pk <= 5 and all their books; the grader reads b.nrev, the number of "
       "reviews of each book.",
       consume=lambda qs: [(p.lastname, sorted((b.title, b.nrev) for b in p.books.all())) for p in qs],
       solution="Publisher.objects.filter(pk__lte=5).prefetch_related(\n"
-               "    Prefetch('books', queryset=Book.objects.annotate(nrev=Count('reviews'))))"),
+               "    Prefetch('books', queryset=Book.objects.annotate(nrev=Count('reviews'))))",
+      notes="The prefetch queryset is a real queryset: annotations, filters and ordering on it "
+             "shape the inner query, and the outer one never needs to know."),
 
     E(slug="ad-coalesce", section=S, title="Coalesce in the database",
       prompt="(title, price or 0 when the price is NULL) for books with pk <= 30, ordered by pk. The "
       "substitution must happen in SQL.",
       solution="Book.objects.filter(pk__lte=30).annotate(p=Coalesce('price', Value(0)))"
                ".order_by('pk').values_list('title', 'p')",
-      order_matters=True),
+      order_matters=True,
+      notes="Substituting in SQL keeps the value available to ORDER BY, to filters and to "
+             "further aggregates. Doing it in Python afterwards puts it out of the database's "
+             "reach."),
 
     E(slug="ad-count-two-levels", section=S, title="Counting two levels down",
       prompt="For authors with pk <= 10, ordered by pk: (lastname, number of their books, number of "

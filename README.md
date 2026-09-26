@@ -79,8 +79,8 @@ budget: 2 queries            │ that repeated shape is the N+1                 
   try again, :hint, or :s for the solution                                        │   title genre price
 ```
 
-Once an answer is correct **and** within budget, the reference solution is printed next to
-yours so you can compare wording:
+Once an answer is correct **and** within budget, the reference solution and an explanation of
+what the exercise was about are printed next to yours:
 
 ```
   ✓ correct, 2 queries - optimal
@@ -90,8 +90,13 @@ yours so you can compare wording:
   yours, 2 queries:
     Author.objects.filter(pk__lte=20).prefetch_related(Prefetch("books", queryset=Book.objects.all()))
 
-  select_related cannot do this: a reverse FK is multi-valued, so it needs its own query.
+  select_related cannot do this: a reverse FK is multi-valued, so it needs its own query
+  (one, not one per author).
 ```
+
+Every one of the 86 exercises has that explanation — the lesson rather than a restatement of the
+code — and `:s` prints it together with the reference solution, so it is there whether you solved
+it or gave up on it.
 
 (If the two match bar quoting and whitespace it just says so. This does not count as revealing
 the solution — you had already solved it. A *correct but over budget* answer deliberately does

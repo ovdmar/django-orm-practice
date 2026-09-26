@@ -18,14 +18,19 @@ EXERCISES = [
       consume=lambda qs: [(b.title, sorted(a.lastname for a in b.contributors.all())) for b in qs],
       solution="Book.objects.prefetch_related('contributors').order_by('pk')[:25]",
       naive="Book.objects.order_by('pk')[:25]",
-      order_matters=True),
+      order_matters=True,
+      notes="An M2M prefetch queries the through table joined to the target once, then hands "
+             "each object its share in Python. The number of objects does not change the number "
+             "of queries."),
 
     E(slug="pf-reverse-m2m", section=S, title="Reverse M2M",
       prompt="The first 15 users by pk, with the authors they follow.",
       consume=lambda qs: [(u.username, sorted(a.lastname for a in u.following.all())) for u in qs],
       solution="User.objects.prefetch_related('following').order_by('pk')[:15]",
       naive="User.objects.order_by('pk')[:15]",
-      order_matters=True),
+      order_matters=True,
+      notes="The reverse side of an M2M costs exactly the same two queries as the forward side. "
+             "related_name is the only difference between them."),
 
     E(slug="pf-to-attr", section=S, title="Prefetch(to_attr=…)",
       prompt="Authors with pk <= 25. The grader reads a.expensive_books, which must hold only that "
@@ -59,7 +64,10 @@ EXERCISES = [
       consume=lambda qs: [(b.title, b.publisher.lastname, sorted(t.tag.name for t in b.tags.all())) for b in qs],
       solution="Book.objects.select_related('publisher').prefetch_related('tags__tag').order_by('pk')[:30]",
       naive="Book.objects.select_related('publisher').order_by('pk')[:30]",
-      order_matters=True),
+      order_matters=True,
+      notes="select_related and prefetch_related compose: single-valued relations join into the "
+             "first query, multi-valued ones get one of their own. Counting queries is counting "
+             "the multi-valued levels."),
 
     E(slug="pf-through", section=S, title="Prefetch the through model",
       prompt="Stores with pk <= 3, and their stock rows - the grader reads each row's book and quantity.",
@@ -74,7 +82,9 @@ EXERCISES = [
       prompt="All stores. The grader reads s.premium: the books that store stocks priced > 55.",
       consume=lambda qs: [(s.name, sorted(b.title for b in s.premium)) for s in qs],
       solution="Store.objects.prefetch_related(\n"
-               "    Prefetch('books', queryset=Book.objects.filter(price__gt=55), to_attr='premium'))"),
+               "    Prefetch('books', queryset=Book.objects.filter(price__gt=55), to_attr='premium'))",
+      notes="A filtered prefetch is still one query, and the filter runs in the database - the "
+             "rows you did not ask for never reach Python at all."),
 
     E(slug="pf-count-instead", section=S, title="When prefetch is the wrong tool",
       prompt="(lastname, number of books) for authors with pk <= 20, ordered by pk.",
@@ -93,7 +103,10 @@ EXERCISES = [
                "    Prefetch('books', queryset=Book.objects.order_by('-published_date', 'id')[:3],\n"
                "             to_attr='recent_books'))",
       hints=["Since Django 4.2 a Prefetch() queryset may be sliced - Django rewrites it with a "
-             "window function."]),
+             "window function."],
+      notes="Django rewrites a sliced prefetch with a window function so the per-object limit "
+             "happens in SQL. Slicing a.books.all()[:3] yourself would have fetched every book "
+             "first."),
 
     E(slug="pf-existing-list", section=S, title="prefetch onto objects you already have",
       prompt="books = list(Book.objects.order_by('pk')[:30]) is already in memory. Attach the reviews of "
@@ -132,5 +145,7 @@ EXERCISES = [
       "books its reviews.",
       consume=lambda qs: [(p.lastname, sorted((b.title, sorted(r.rating for r in b.reviews.all())) for b in p.books.all())) for p in qs],
       solution="Publisher.objects.filter(pk__lte=5).prefetch_related(\n"
-               "    Prefetch('books', queryset=Book.objects.filter(price__gte=55).prefetch_related('reviews')))"),
+               "    Prefetch('books', queryset=Book.objects.filter(price__gte=55).prefetch_related('reviews')))",
+      notes="A Prefetch queryset can prefetch in turn, so each level stays one query however the "
+             "filtering is arranged."),
 ]

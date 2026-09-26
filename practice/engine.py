@@ -35,11 +35,12 @@ def _split_top_level(text, separator=","):
     return parts
 
 
-def _collapse_columns(sql):
-    """SELECT a, b, c, d FROM x -> SELECT a, +3 cols FROM x.
+def _collapse_columns(sql, budget):
+    """SELECT a, b, c, d FROM x -> SELECT a, +3 cols FROM x, when it will not fit.
 
-    The column list is the least interesting part of a query and the longest;
-    dropping it is what makes the JOIN and the WHERE visible in a narrow column.
+    The column list is the least interesting part of a query and the longest, so it
+    is what gives way when the JOIN and the WHERE would otherwise be pushed out of
+    sight - but only then: within `budget` characters the columns stay.
     """
     head = re.match(r"SELECT\s+(DISTINCT\s+)?", sql, re.I)
     if not head:
@@ -56,16 +57,23 @@ def _collapse_columns(sql):
             break
     if cut is None:
         return sql
-    columns = _split_top_level(sql[head.end():cut])
+    listing = sql[head.end():cut]
+    if len(listing) <= budget:
+        return sql
+    columns = _split_top_level(listing)
     if len(columns) <= 2:
         return sql
     return f"{sql[:head.end()]}{columns[0].strip()}, +{len(columns) - 1} cols{sql[cut:]}"
 
 
-def shorten_sql(sql, collapse=True):
-    """Drop the quoting and the app prefix - unreadable in a narrow column."""
+def shorten_sql(sql, width=None, lines=2):
+    """Drop the quoting and the app prefix - unreadable in a narrow column.
+
+    With a `width`, a column list longer than `lines` lines of it collapses to
+    `+N cols`; without one the query is left whole.
+    """
     sql = " ".join(re.sub(r"\bbookstore_", "", sql.replace('"', "")).split())
-    return _collapse_columns(sql) if collapse else sql
+    return _collapse_columns(sql, width * lines) if width else sql
 
 
 CLAUSES = (
