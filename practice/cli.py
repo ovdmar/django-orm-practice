@@ -391,24 +391,38 @@ class Session:
         ]
 
         # everything below the columns, built first so its height is known
-        tail = []
-        if contract and (grade is None or grade.attempt.shape_error):
-            tail.append("")
-            tail.append(ink.dim("  the grader consumes your result like this:"))
+        BODY_MIN = 6
+        shown, compared, explained, guidance = [], [], [], []
+        if contract:            # on every screen: it is what decides the query count
+            shown.append("")
+            shown.append(ink.dim("  the grader consumes your result like this:"))
             for line in contract.split("\n"):
-                tail += [ink.dim(part) for part in self._soft(line, width, "    ", "      ")]
+                shown += [ink.dim(part) for part in self._soft(line, width, "    ", "      ")]
         if grade is None and ex.hints:
-            tail.append(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
+            guidance.append(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
         if grade is not None and (grade.optimal or grade.better):
-            tail += self.compare(ex, grade, width)
+            compared = self.compare(ex, grade, width)
             if ex.notes:
-                tail.append("")
-                tail += [ink.dim(part)
-                         for part in self._soft(" ".join(ex.notes.split()), width)]
+                explained = [""] + [ink.dim(part) for part
+                                    in self._soft(" ".join(ex.notes.split()), width)]
         if grade is not None and not (grade.optimal or grade.better):
-            tail.append(ink.dim("  try again, :hint, or :s for the solution"))
+            guidance.append(ink.dim("  try again, :hint, or :s for the solution"))
 
-        body_room = max(6, self.screen_room() - len(head) - len(tail))
+        # a screen has to fit the window, so when it will not, the parts that are a
+        # keystroke away give up their space first
+        room = self.screen_room()
+        squeezed = False
+        for expendable in (explained, compared):
+            if len(head) + BODY_MIN + len(shown) + len(compared) + len(explained) \
+                    + len(guidance) <= room:
+                break
+            expendable.clear()
+            squeezed = True
+        if squeezed:
+            guidance.append(ink.dim("  :s for the solution and the explanation"))
+        tail = shown + compared + explained + guidance
+
+        body_room = max(BODY_MIN, room - len(head) - len(tail))
 
         cells = {}
         for name, w in plan:
