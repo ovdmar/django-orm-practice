@@ -65,6 +65,82 @@ def shorten_sql(sql, collapse=True):
     return _collapse_columns(sql) if collapse else sql
 
 
+CLAUSES = (
+    "SELECT", "FROM", "INNER JOIN", "LEFT OUTER JOIN", "LEFT JOIN", "RIGHT JOIN",
+    "CROSS JOIN", "WHERE", "GROUP BY", "ORDER BY", "HAVING", "LIMIT", "OFFSET",
+    "UNION ALL", "UNION", "INSERT INTO", "UPDATE", "DELETE FROM", "SET", "VALUES",
+)
+
+
+def _is_word_edge(sql, index):
+    return index <= 0 or not (sql[index - 1].isalnum() or sql[index - 1] == "_")
+
+
+def clause_chunks(sql):
+    """Break a query at its top-level clauses; subqueries stay in one piece."""
+    out, depth, start, i = [], 0, 0, 0
+    upper = sql.upper()
+    while i < len(sql):
+        char = sql[i]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif depth == 0 and _is_word_edge(sql, i):
+            for keyword in CLAUSES:
+                if not upper.startswith(keyword, i):
+                    continue
+                after = i + len(keyword)
+                if after < len(sql) and (sql[after].isalnum() or sql[after] == "_"):
+                    continue
+                if i > start:
+                    out.append(sql[start:i].strip())
+                    start = i
+                i = after - 1
+                break
+        i += 1
+    out.append(sql[start:].strip())
+    return [chunk for chunk in out if chunk]
+
+
+def wrap_sql(sql, width, prefix="", indent="   "):
+    """One clause per line, wrapped again if a clause is still too wide."""
+    lines, deep = [], indent + "  "
+    for position, chunk in enumerate(clause_chunks(sql)):
+        lead = prefix if position == 0 else indent
+        room = max(20, width - max(len(lead), len(deep)))
+        pieces = textwrap.wrap(chunk, room) or [""]
+        lines.append(lead + pieces[0])
+        lines += [deep + piece for piece in pieces[1:]]
+    return lines
+
+
+CLAUSE_WORTH = (
+    ("WHERE", 0), ("INNER JOIN", 1), ("LEFT", 1), ("RIGHT", 1), ("CROSS", 1),
+    ("FROM", 2), ("GROUP BY", 3), ("HAVING", 3), ("ORDER BY", 4), ("LIMIT", 5),
+    ("OFFSET", 5),
+)
+
+
+def pick_clauses(lines, keep):
+    """Trim a wrapped query to `keep` lines, dropping the least telling clauses.
+
+    ORDER BY and LIMIT go first; WHERE and the JOINs are what explain a query
+    count, so they stay. The first line stays because it carries the xN marker.
+    """
+    if len(lines) <= keep:
+        return lines
+    scored = []
+    for index, line in enumerate(lines):
+        text = line.strip().upper()
+        worth = -1 if index == 0 else next(
+            (w for keyword, w in CLAUSE_WORTH if text.startswith(keyword)), 3)
+        scored.append((worth, index, line))
+    chosen = sorted(sorted(scored)[:keep], key=lambda item: item[1])
+    out = [line for _worth, _index, line in chosen]
+    return out[:-1] + [out[-1] + " ..."]
+
+
 TXN_NOISE = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b", re.I)
 
 

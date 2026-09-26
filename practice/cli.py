@@ -145,6 +145,13 @@ class Session:
         return lines
 
     @staticmethod
+    def _soft(text, width, indent="  ", hang=None):
+        """Wrap prose or code to the window - an over-wide line breaks fullscreen."""
+        hang = indent + "  " if hang is None else hang
+        return textwrap.wrap(text, max(20, width - len(hang)), initial_indent=indent,
+                             subsequent_indent=hang) or [indent.rstrip()]
+
+    @staticmethod
     def _clip(text, width):
         text = text.rstrip()
         return text if len(text) <= width else text[: width - 1] + "…"
@@ -173,9 +180,9 @@ class Session:
             out.append(("(writes are rolled back)", self.ink.dim))
         return out
 
-    def _sql_lines(self, att, width, limit=4):
-        """The SQL the attempt actually ran, one line per distinct query shape."""
-        if not att.queries:
+    def _sql_lines(self, att, width, room=10):
+        """The SQL the attempt ran: one clause per line, inside `room` lines."""
+        if not att.queries or room < 4:
             return []
         dim = self.ink.dim
         shapes = att.shapes()
@@ -184,12 +191,22 @@ class Session:
         if len(shapes) != len(att.queries):
             head += f", {len(shapes)} distinct"
         out = [("", None), (head + ":", dim)]
-        for i, (sql, n) in enumerate(shapes[:limit], 1):
-            repeat = f"x{n} " if n > 1 else ""
-            out.append((f"{i}. {repeat}{engine.shorten_sql(sql)}", dim))
-        if len(shapes) > limit:
-            out.append((f"... {len(shapes) - limit} more shape(s)", dim))
-        out.append((":v sql for the full text", dim))
+        budget, shown = room - 3, 0          # the blank, the header, the footer
+        left = len(shapes)
+        for i, (sql, repeats) in enumerate(shapes, 1):
+            if budget < 2:
+                break
+            prefix = f"{i}. " + (f"x{repeats} " if repeats > 1 else "")
+            lines = engine.wrap_sql(engine.shorten_sql(sql), width, prefix=prefix)
+            lines = engine.pick_clauses(lines, max(2, budget // left))
+            out += [(line, dim) for line in lines]
+            budget -= len(lines)
+            left -= 1
+            shown += 1
+        if shown < len(shapes):
+            out.append((f"... {len(shapes) - shown} more, :v sql for all", dim))
+        else:
+            out.append((":v sql for the exact text", dim))
         return out
 
     def _result_cell(self, ex, grade, width, room=24):
@@ -199,8 +216,7 @@ class Session:
         is a smaller loss than the query that explains the count.
         """
         ink, att = self.ink, grade.attempt
-        max_sql = 2 if room < 16 else min(5, max(3, room // 6))
-        sql = self._sql_lines(att, width, max_sql)
+        sql = self._sql_lines(att, width, max(4, min(room - 8, 18)))
         out = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:3]]
         plural = "query" if grade.nqueries == 1 else "queries"
 
@@ -311,14 +327,16 @@ class Session:
         if contract and (grade is None or grade.attempt.shape_error):
             tail.append("")
             tail.append(ink.dim("  the grader consumes your result like this:"))
-            tail += [ink.dim("    " + line) for line in contract.split("\n")]
+            for line in contract.split("\n"):
+                tail += [ink.dim(part) for part in self._soft(line, width, "    ", "      ")]
         if grade is None and ex.hints:
             tail.append(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
         if grade is not None and (grade.optimal or grade.better):
-            tail += self.compare(ex, grade)
+            tail += self.compare(ex, grade, width)
             if ex.notes:
                 tail.append("")
-                tail += [ink.dim("  " + line) for line in ex.notes.split("\n")]
+                tail += [ink.dim(part)
+                         for part in self._soft(" ".join(ex.notes.split()), width)]
         if grade is not None and not (grade.optimal or grade.better):
             tail.append(ink.dim("  try again, :hint, or :s for the solution"))
 
@@ -430,20 +448,25 @@ class Session:
         strip = lambda t: re.sub(r"\s+", "", t).replace('"', "'")  # noqa: E731
         return strip(a) == strip(b)
 
-    def compare(self, ex, grade):
+    def compare(self, ex, grade, width=96):
         """Once it passes, put your answer next to the reference one."""
         ink = self.ink
         mine, ref = grade.attempt.code.strip(), ex.solution.strip()
         out = [""]
         if self._same_code(mine, ref):
-            return out + [ink.dim(f"  that is the reference solution - {ex.title}")]
-        out.append(ink.dim(f"  reference solution ({ex.title}), {grade.target} "
-                           f"quer{'y' if grade.target == 1 else 'ies'}:"))
-        out += [ink.green("    " + line) for line in ref.split("\n")]
-        out.append(ink.dim(f"  yours, {grade.nqueries} quer"
+            return out + [ink.dim(part) for part in
+                          self._soft(f"that is the reference solution - {ex.title}", width)]
+        out += [ink.dim(part) for part in
+                self._soft(f"reference solution ({ex.title}), {grade.target} "
+                           f"quer{'y' if grade.target == 1 else 'ies'}:", width)]
+        for line in ref.split("\n"):
+            out += [ink.green(part) for part in self._soft(line, width, "    ", "      ")]
+        out += [ink.dim(part) for part in
+                self._soft(f"yours, {grade.nqueries} quer"
                            f"{'y' if grade.nqueries == 1 else 'ies'}"
-                           f"{' - fewer!' if grade.better else ''}:"))
-        out += ["    " + line for line in mine.split("\n")]
+                           f"{' - fewer!' if grade.better else ''}:", width)]
+        for line in mine.split("\n"):
+            out += self._soft(line, width, "    ", "      ")
         return out
 
     def solution(self, ex):
@@ -526,22 +549,14 @@ class Session:
         if not self.last.queries:
             print("  no queries at all")
             return
-        seen, shown = {}, 0
-        for i, q in enumerate(self.last.queries, 1):
-            shape = next(s for s, qs in self.last.shape_counts().items() if q in qs)
-            seen[shape] = seen.get(shape, 0) + 1
-            if seen[shape] > 2 or shown >= limit:
-                continue
-            shown += 1
-            print(self.ink.dim(f"  {i:>3}. {q['time']}s  ")
-                  + engine._trim(engine.shorten_sql(q["sql"]), 140))
-        hidden = len(self.last.queries) - shown
-        if hidden:
-            print(self.ink.dim(f"  ... {hidden} more query/queries not shown; "
-                               f"{len(self.last.shape_counts())} distinct shape(s) in total:"))
-            for n, shape in self.last.repeated_shapes()[:3]:
-                print(self.ink.dim(f"      {n}x  ")
-                      + engine._trim(engine.shorten_sql(shape), 100))
+        width = min(shutil.get_terminal_size((80, 24)).columns, 120) - 4
+        for i, (sql, repeats) in enumerate(self.last.shapes()[:limit], 1):
+            prefix = f"{i}. " + (f"x{repeats} " if repeats > 1 else "")
+            for line in engine.wrap_sql(engine.shorten_sql(sql), width, prefix=prefix):
+                print(self.ink.dim("  " + line))
+        extra = len(self.last.shapes()) - limit
+        if extra > 0:
+            print(self.ink.dim(f"  ... {extra} more shape(s)"))
         print(self.ink.dim("  (names shortened; :v sql has the exact text)"))
 
     def data_summary(self):
