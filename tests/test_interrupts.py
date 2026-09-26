@@ -16,7 +16,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SUBMIT = b"\x1b\r"          # alt+enter: Enter now adds a line instead of running
+SUBMIT = b"\r"              # a complete expression runs on enter
 
 
 class Cli:

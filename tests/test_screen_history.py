@@ -23,7 +23,7 @@ ALT_UP, ALT_DOWN = b"\x1b[1;3A", b"\x1b[1;3B"
 CTRL_UP = b"\x1b[1;5A"
 ESC_PREFIX_UP = b"\x1b\x1b[A"
 PLAIN_UP = b"\x1b[A"
-SUBMIT = b"\x1b\r"          # alt+enter: Enter now adds a line instead of running
+SUBMIT = b"\r"              # a complete expression runs on enter
 
 
 class Cli:

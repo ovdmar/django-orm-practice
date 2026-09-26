@@ -15,15 +15,17 @@ from practice.exercises import EXERCISES, SECTIONS, get
 HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".history")
 
 COMMANDS = """
-  <query>        type it over as many lines as you like - enter adds a line, and
-                 shift+enter (or alt+enter, or ctrl+j) runs the whole snippet as one
-                 measured unit
+  <query>        an expression runs as soon as you hit enter. Anything else (assignment,
+                 loop, several statements) is collected like a file - dedent to close a
+                 block - and a blank line runs the whole snippet as one measured unit
+  :ml :multi     start a multi-statement snippet (or end a line with \\), blank line runs it
   :s :solution   show the reference solution (and the lesson behind it)
   :hint          one hint at a time
   :n :next       next exercise            :p :prev      previous exercise
   :g N :goto N   jump to exercise N       :l :list      list all exercises
   :v :view       full-screen preview of your answer (q to leave)
                  :v ref  the reference answer      :v sql  every query it ran
+                 :v err  the full traceback of what your code raised
   :sql           the SQL your last attempt actually ran
   :diff          reference answer vs yours, for the last attempt
   :d :data       row counts in the database
@@ -45,7 +47,7 @@ Frame = collections.namedtuple("Frame", "number lines")
 KEYS = [                      # in priority order: the tail is dropped if it will not fit
     (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view"), (":diff", ""),
     (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"), (":l", "list"),
-    (":m", "models"), ("alt+up/dn", "screens"), ("^c", "clear"), ("^d", "quit"),
+    (":m", "models"), (":ml", "multi-line"), ("alt+up/dn", "screens"), ("^c", "clear"), ("^d", "quit"),
     (":stats", ""), (":sc", "schema"), (":fs", "fullscreen"),
     (":k", "keys"),
 ]
@@ -87,6 +89,7 @@ class Session:
         self.pending = None     # a line typed at the "next exercise" prompt
         self.show_schema = self.data.get("schema", True)
         self.show_keys = self.data.get("keys", True)
+        self.told_multiline = False
         self.fullscreen = self.data.get("fullscreen", True)
         self.frames = []          # every screen drawn this session
         self.frame_at = None      # None = looking at the latest one
@@ -122,10 +125,11 @@ class Session:
         # wider than it used to be: the relation lines now carry reverse names too
         schema_w = max(26, min(44, width // 4 + 6)) if self.show_schema else 0
         left = max(30, width - schema_w - gaps)
-        task_w = max(18, min(40, left // 3))   # 18 fits "budget: 2 queries"
-        plan = [("task", task_w), ("result", left - task_w)]
+        task_w = max(18, min(34, left // 3))   # 18 fits "budget: 2 queries"
+        plan = [("task", task_w)]
         if self.show_schema:
             plan.append(("schema", schema_w))
+        plan.append(("result", left - task_w))  # the widest column, on the right
         return plan, width
 
     def _keybar(self, width):
@@ -175,6 +179,44 @@ class Session:
             out.append(("(writes are rolled back)", self.ink.dim))
         return out
 
+    @staticmethod
+    def _wrap_items(items, width, hang="   "):
+        """Wrap every line of a column, keeping its own indentation."""
+        out = []
+        for text, style in items:
+            if not text.strip():
+                out.append((text, style))
+                continue
+            indent = text[:len(text) - len(text.lstrip())]
+            pieces = textwrap.wrap(text.strip(), max(20, width - len(indent)),
+                                   initial_indent=indent, subsequent_indent=indent + hang,
+                                   break_on_hyphens=False) or [text]
+            out += [(piece, style) for piece in pieces]
+        return out
+
+    def _rows_block(self, value, width, room, per_row=3):
+        """As many wrapped rows as `room` allows. Returns (lines, shown, total)."""
+        texts, total = engine.row_texts(value)
+        out, shown = [], 0
+        for text in texts:
+            pieces = textwrap.wrap(text, max(20, width), subsequent_indent="   ") or [""]
+            if len(pieces) > per_row:
+                pieces = pieces[:per_row]
+                pieces[-1] += " ..."
+            if shown and len(out) + len(pieces) > room:
+                break
+            out += pieces
+            shown += 1
+        return out, shown, total
+
+    def _wrap_cell(self, text, width, limit):
+        """Wrap a message into a column, with an ellipsis if it will not all fit."""
+        lines = textwrap.wrap(" ".join(text.split()), max(20, width)) or [""]
+        if len(lines) > limit:
+            lines = lines[:limit]
+            lines[-1] += " ..."
+        return lines
+
     def _sql_lines(self, att, width, room=10):
         """The SQL the attempt ran: one clause per line, inside `room` lines."""
         if not att.queries or room < 4:
@@ -205,61 +247,72 @@ class Session:
         return out
 
     def _result_cell(self, ex, grade, width, room=24):
-        """Your query, the verdict, the rows, and the SQL - inside `room` lines.
+        """Your query, the verdict, the rows and the SQL - all wrapped to the column.
 
         The SQL is sized first and the rows take what is left: a row you cannot see
         is a smaller loss than the query that explains the count.
         """
         ink = self.ink
         if grade is None:
-            return [(">>> ...", ink.dim), ("", None),
-                    ("your rows and the SQL they cost", ink.dim),
-                    ("appear here", ink.dim)]
+            return self._wrap_items(
+                [(">>> ...", ink.dim), ("", None),
+                 ("your rows and the SQL they cost appear here", ink.dim)], width)
         att = grade.attempt
         sql = self._sql_lines(att, width, max(4, min(room - 8, 18)))
-        out = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:3]]
-        plural = "query" if grade.nqueries == 1 else "queries"
+        echo = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:3]]
 
         if att.shape_error:
-            out += [("✗ the grader cannot read what you returned", ink.red),
-                    (f"you returned {att.raw}", ink.dim),
-                    (att.error.split("\n")[-1], None)]
-            return out + sql
+            head = echo + [("✗ the grader cannot read what you returned", ink.red),
+                           (f"you returned {att.raw}", ink.dim),
+                           (att.error.split("\n")[-1], None)]
+            return self._wrap_items(head, width) + sql
         if att.error:
-            out.append(("✗ your code raised", ink.red))
-            keep = max(1, room - len(out) - len(sql) - 1)
-            out += [(line.strip(), None) for line in att.error.split("\n")[-keep:]]
-            return out + sql
+            # the marked-up snippet stands in for the plain echo
+            head = [("✗ your code raised", ink.red)]
+            head += [(line, None) for line in self._wrap_cell(att.error, width, 5)]
+            head.append(("", None))
+            code = att.code.split("\n")
+            numbered = len(code) > 1
+            for number, text in enumerate(code, 1):
+                hit = number == att.error_line or not numbered
+                head.append((("> " if hit else "  ") + (f"{number} " if numbered else "") + text,
+                             ink.red if hit else ink.dim))
+            if att.traceback:
+                head.append((":v err for the traceback", ink.dim))
+            return self._wrap_items(head, width) + sql
 
+        plural = "query" if grade.nqueries == 1 else "queries"
+        head = list(echo)
         if grade.better:
-            out.append((f"✓ correct in {grade.nqueries} {plural} - beats the "
-                        f"reference ({grade.target})!", ink.green))
+            head.append((f"✓ correct in {grade.nqueries} {plural} - beats the "
+                         f"reference ({grade.target})!", ink.green))
         elif grade.optimal:
-            out.append((f"✓ correct, {grade.nqueries} {plural} - optimal", ink.green))
+            head.append((f"✓ correct, {grade.nqueries} {plural} - optimal", ink.green))
         elif grade.ok:
-            out.append((f"~ correct, but {grade.nqueries} {plural} "
-                        f"instead of {grade.target}", ink.yellow))
+            head.append((f"~ correct, but {grade.nqueries} {plural} "
+                         f"instead of {grade.target}", ink.yellow))
         else:
-            out.append((f"✗ wrong answer ({grade.nqueries} {plural})", ink.red))
+            head.append((f"✗ wrong answer ({grade.nqueries} {plural})", ink.red))
         if grade.ok and not grade.optimal and att.repeated_shapes():
-            out.append(("the repeated query below is the N+1", ink.dim))
+            head.append(("the repeated query below is the N+1", ink.dim))
+        head = self._wrap_items(head, width)
 
-        for_rows = max(2, room - len(out) - len(sql) - 2)
-        rows, total = engine.render_rows(att.value, width, for_rows)
-        out.append(("", None))
-        out += [(row, None) for row in rows]
+        rows, shown, total = self._rows_block(
+            att.value, width, max(2, room - len(head) - len(sql) - 2))
+        out = head + [("", None)] + [(row, None) for row in rows]
         tail = []
-        if total > len(rows):
+        if total > shown:
             tail.append(f"{total} rows in all")
         if not grade.ok:
             reference = self.reference(ex)
             if isinstance(reference.value, list) and isinstance(att.value, list):
                 tail.append(f"reference has {len(reference.value)}")
-        if total > len(rows) or not grade.ok:
+        if total > shown or not grade.ok:
             tail.append(":v to view, :diff to compare" if not grade.ok else ":v to view it all")
         if tail:
-            out.append((" - ".join(tail), ink.dim))
+            out += self._wrap_items([(" - ".join(tail), ink.dim)], width)
         return out + sql
+
 
     def _schema_cell(self, ex, contract, width, max_lines=None):
         """Field definitions, capped so the whole screen still fits the window."""
@@ -281,11 +334,13 @@ class Session:
         self.frame_at = None
         self.render(lines)
 
+    BREATH = 2                   # blank lines between the screen and the prompt
+
     @staticmethod
     def screen_room(note=False):
-        """Lines a screen may use: the window, less the prompt and its reminder."""
+        """Lines a screen may use: the window, less the prompt and the gap above it."""
         height = shutil.get_terminal_size((80, 24)).lines
-        return max(8, height - (6 if note else 5))
+        return max(8, height - Session.BREATH - (5 if note else 4))
 
     def render(self, lines, note=None):
         """Draw a screen. In fullscreen mode it replaces what is on display."""
@@ -301,6 +356,7 @@ class Session:
                           f":m for the schema"))
         if note:
             print(ink.dim(note))
+        print("\n" * (self.BREATH - 1))
 
     def build_frame(self, ex, grade):
         """Lay out one screen, sized so that it fits the window without scrolling."""
@@ -384,28 +440,12 @@ class Session:
                     note=f"  {where}   alt+up / alt+down to move   "
                          f"the prompt belongs to Exercise #{self.current.number}")
 
-    SUBMIT_KEYS = (
-        r"\e[13;2u",        # kitty keyboard protocol (kitty, wezterm, ghostty, foot)
-        r"\e[27;2;13~",     # xterm modifyOtherKeys=2
-        r"\eOM",            # some terminals' keypad enter
-        r"\e\C-m",          # alt+enter - sent by practically everything
-        r"\e\r",
-    )
-
     def bind_keys(self):
-        """Enter adds a line; shift+enter (and friends) submit.
+        """Wire alt/ctrl + up/down to the screen history.
 
-        readline has no multi-line mode, but quoted-insert will put a literal
-        newline in the buffer, and Python's input() hands it back with the newlines
-        intact - so Enter becomes "new line" and accept-line has to be asked for.
+        readline owns the line, so the binding is a macro that clears whatever is
+        typed and submits ':back'/':fwd' - the same thing you could type by hand.
         """
-        try:
-            readline.parse_and_bind(r'"\C-m": "\C-v\C-j"')   # enter -> newline
-            for key in self.SUBMIT_KEYS:
-                readline.parse_and_bind(f'"{key}": accept-line')
-        except Exception:
-            pass                                            # libedit: enter still submits
-
         sequences = {
             ":back": (r"\e[1;3A", r"\e\e[A", r"\e[1;5A", r"\e[1;9A", r"\e[1;2A"),
             ":fwd": (r"\e[1;3B", r"\e\e[B", r"\e[1;5B", r"\e[1;9B", r"\e[1;2B"),
@@ -495,6 +535,11 @@ class Session:
             pager.page(engine.dumps(ref.value),
                        f"reference answer - Exercise #{ex.number} {ex.title} "
                        f"({ref.nqueries} queries)")
+        elif what in ("err", "error", "traceback", "tb"):
+            if self.last is None or not self.last.traceback:
+                print("  no traceback - nothing raised")
+            else:
+                pager.page(self.last.traceback, f"traceback - {self.label(ex)}")
         elif what == "sql":
             if self.last is None:
                 print("  nothing run yet")
@@ -629,8 +674,7 @@ class Session:
                 if nxt is None:
                     print(ink.bold("\n  that was the last one. :stats to see how it went."))
                     continue
-                print(ink.dim("  submit an empty line for the next exercise, "
-                              "or keep working on this one"))
+                print(ink.dim("  [enter] next exercise, or keep working on this one"))
                 try:
                     typed = input().strip()
                 except EOFError:
@@ -650,15 +694,54 @@ class Session:
         solved, clean, total = progress.summary(self.data, EXERCISES)
         print(ink.dim(f"  saved - {solved}/{total} solved, {clean} within budget"))
 
+    @staticmethod
+    def _complete_expression(source):
+        """True when the buffer is already a full expression - nothing more to wait for."""
+        import ast
+        try:
+            ast.parse(source, mode="eval")
+            return True
+        except SyntaxError:
+            return False
+
     def read(self):
-        """One snippet. Enter adds a line to it; a submit key runs it."""
+        """Read one snippet.
+
+        A complete expression runs as soon as you hit enter. Anything else - an
+        assignment, a loop, several statements - keeps reading until a blank line,
+        because the whole snippet has to be measured as one unit.
+        """
+        lines, forced = [], False
         if self.pending is not None:
             pending, self.pending = self.pending, None
-            return pending
-        print(self.ink.blue("  enter = new line   shift+enter = run") +
-              self.ink.dim("   (alt+enter and ctrl+j run it too)"))
-        text = input(self.ink.rl("36", ">>> "))
-        return text if text.strip() else None
+            if pending.startswith(":") or pending in ("?", "help"):
+                return pending
+            if self._complete_expression(pending):
+                return pending
+            lines.append(pending)
+        while True:
+            if lines and not self.told_multiline:
+                self.told_multiline = True
+                print(self.ink.dim("    (writing a snippet - type it like a file, dedent to close "
+                                   "a block; a blank line runs it)"))
+            line = input(self.ink.rl("36", ">>> " if not (lines or forced) else "... "))
+            if not lines and line.strip() in (":multi", ":ml"):
+                forced = self.told_multiline = True
+                print(self.ink.dim("    (multi-statement snippet: blank line runs it)"))
+                continue
+            if not lines and (line.strip().startswith(":") or line.strip() in ("?", "help")):
+                return line.strip()
+            if (lines or forced) and not line.strip():
+                return "\n".join(lines)
+            if line.rstrip().endswith("\\"):        # explicit continuation
+                forced = True
+                line = line.rstrip()[:-1]
+            lines.append(line)
+            source = "\n".join(lines)
+            if not source.strip():
+                return None
+            if not forced and self._complete_expression(source):
+                return source
 
     def command(self, raw, ex):
         parts = raw.split()

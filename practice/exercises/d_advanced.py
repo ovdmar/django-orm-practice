@@ -42,8 +42,8 @@ EXERCISES = [
             "match and needs no DISTINCT over the whole row."),
 
     E(slug="ad-window", section=S, title="Window function",
-      prompt="The most expensive book per genre: (genre, title, price), ordered by genre. Books without "
-             "a price are out. ONE query, using a window function.",
+      prompt="The most expensive book per genre: (genre, title, price), ordered by genre. Books "
+             "without a price are out. ONE query.",
       solution="ranked = Book.objects.filter(price__isnull=False).annotate(\n"
                "    r=Window(RowNumber(), partition_by='genre', order_by=['-price', 'id']))\n"
                "ranked.filter(r=1).order_by('genre').values_list('genre', 'title', 'price')",
@@ -151,8 +151,8 @@ EXERCISES = [
             "review count - the leaf of the join - must NOT have it."),
 
     E(slug="ad-union", section=S, title="union()",
-      prompt="A flat list of the distinct lastnames that occur either as an author lastname or as a "
-             "publisher lastname. ONE query.",
+      prompt="A flat list of the lastnames that occur either as an author lastname or as a "
+             "publisher lastname, each one listed once. ONE query.",
       solution="Author.objects.values_list('lastname', flat=True).order_by().union(\n"
                "    Publisher.objects.values_list('lastname', flat=True).order_by())",
       naive="set(Author.objects.values_list('lastname', flat=True)) | "

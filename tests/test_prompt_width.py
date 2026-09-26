@@ -96,9 +96,9 @@ def test_cursor_reaches_the_start():
             f"{column - len(PROMPT)} columns right of where the query starts"
         )
         print(f"  Ctrl-A puts the cursor in column {column}, where the query starts  ok")
-        os.write(master, b"\x1b\r")        # alt+enter submits
+        os.write(master, b"\r")
         drain(0.4)
-        os.write(master, b":q\x1b\r")
+        os.write(master, b":q\r")
         drain(1.0)
     finally:
         proc.terminate()

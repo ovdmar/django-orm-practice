@@ -51,16 +51,17 @@ EXERCISES = [
       order_matters=True),
 
     E(slug="sr-only", section=S, title="select_related + only()",
-      prompt="The 50 books with the most pages, ordered by -page_count then id. Fetch only the columns "
-             "the grader needs (plus primary keys) - and still pay a single query.\n"
-             "Starting point:  Book.objects.order_by('-page_count', 'id').only('title')[:50]",
+      prompt="The 50 books with the most pages, ordered by -page_count then id. Fetch no more "
+             "columns than the grader needs (primary keys aside) and still pay a single query.",
       consume=lambda qs: [(b.title, b.genre, b.publisher.country) for b in qs],
       solution="Book.objects.select_related('publisher').only('title', 'genre', 'publisher__country')"
                ".order_by('-page_count', 'id')[:50]",
       naive="Book.objects.select_related('publisher').only('title', 'publisher__country')"
             ".order_by('-page_count', 'id')[:50]",
       order_matters=True,
-      hints=["only() understands relation paths: only('title', 'publisher__country')."],
+      hints=["a starting point that is nearly right: "
+             "Book.objects.order_by('-page_count', 'id').only('title')[:50]",
+             "only() understands relation paths: only('title', 'publisher__country')."],
       notes="Touching a field you deferred triggers one extra SELECT *per row* - the same N+1 shape, "
             "from the opposite direction."),
 

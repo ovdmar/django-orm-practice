@@ -2,6 +2,8 @@
 
 import ast
 import datetime
+import linecache
+import sys
 import decimal
 import json
 import re
@@ -141,6 +143,8 @@ def pick_clauses(lines, keep):
     return out[:-1] + [out[-1] + " ..."]
 
 
+ANSWER = "<answer>"          # the filename your snippet is compiled under
+
 TXN_NOISE = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b", re.I)
 
 
@@ -228,16 +232,36 @@ def canonical(value, order_matters):
 # execution
 # --------------------------------------------------------------------------- #
 
+def _user_line():
+    """The last line of the user's own snippet on the current traceback."""
+    tb, line = sys.exc_info()[2], None
+    while tb is not None:
+        if tb.tb_frame.f_code.co_filename == ANSWER:
+            line = tb.tb_lineno
+        tb = tb.tb_next
+    return line
+
+
+def _user_traceback(exc):
+    """The traceback from your snippet down, without this module's frames on top."""
+    tb = exc.__traceback__
+    while tb is not None and tb.tb_frame.f_code.co_filename != ANSWER:
+        tb = tb.tb_next
+    return "".join(traceback.format_exception(type(exc), exc, tb or exc.__traceback__))
+
+
 def _exec_eval(code, ns):
+    # let traceback/linecache show the snippet's source instead of a bare line number
+    linecache.cache[ANSWER] = (len(code), None, code.splitlines(True), ANSWER)
     tree = ast.parse(code, mode="exec")
     if not tree.body:
         raise UserInputError("Nothing to run.")
     last = tree.body[-1]
     if isinstance(last, ast.Expr):
         if tree.body[:-1]:
-            exec(compile(ast.Module(body=tree.body[:-1], type_ignores=[]), "<answer>", "exec"), ns)
-        return eval(compile(ast.Expression(last.value), "<answer>", "eval"), ns)
-    exec(compile(tree, "<answer>", "exec"), ns)
+            exec(compile(ast.Module(body=tree.body[:-1], type_ignores=[]), ANSWER, "exec"), ns)
+        return eval(compile(ast.Expression(last.value), ANSWER, "eval"), ns)
+    exec(compile(tree, ANSWER, "exec"), ns)
     for key in ("answer", "result", "out", "qs"):
         if key in ns:
             return ns[key]
@@ -256,6 +280,8 @@ class Attempt:
     queries: list = field(default_factory=list)
     shape_error: bool = False     # the grader could not consume what you returned
     raw: str = None               # what you did return, described cheaply
+    error_line: int = None        # which line of *your* snippet raised
+    traceback: str = None         # the whole thing, for :v err
 
     @property
     def nqueries(self):
@@ -311,10 +337,14 @@ def run(code, consume=None, order_matters=False):
         except UserInputError as exc:
             attempt.error = str(exc)
         except SyntaxError as exc:
-            where = f" (line {exc.lineno})" if exc.lineno else ""
-            attempt.error = f"SyntaxError: {exc.msg}{where}"
-        except Exception:
-            attempt.error = _short_traceback()
+            attempt.error = f"SyntaxError: {exc.msg}"
+            attempt.error_line = exc.lineno
+            attempt.traceback = "".join(
+                traceback.format_exception_only(type(exc), exc))
+        except Exception as exc:
+            attempt.error = f"{type(exc).__name__}: {exc}"
+            attempt.error_line = _user_line()
+            attempt.traceback = _user_traceback(exc)
     attempt.queries = [q for q in ctx.captured_queries if not TXN_NOISE.match(q["sql"])]
     return attempt
 
@@ -390,15 +420,15 @@ def preview(value, limit=6, width=100):
     return _trim(json.dumps(value, default=str, indent=1), width * 4)
 
 
-def render_rows(value, width, max_rows=12):
-    """(lines clipped to `width`, total row count) - one line per row of the answer."""
+def row_texts(value, limit=60):
+    """(one untrimmed string per row, total row count) - the caller wraps them."""
     if isinstance(value, list):
-        rows = [_trim(json.dumps(v, default=str), width) for v in value[:max_rows]]
+        rows = [json.dumps(v, default=str) for v in value[:limit]]
         return (rows or ["[]  (empty!)"]), len(value)
     if isinstance(value, dict):
-        items = list(value.items())[:max_rows]
-        return [_trim(f"{k}: {json.dumps(v, default=str)}", width) for k, v in items], len(value)
-    return [_trim(json.dumps(value, default=str), width)], 1
+        items = list(value.items())[:limit]
+        return [f"{k}: {json.dumps(v, default=str)}" for k, v in items], len(value)
+    return [json.dumps(value, default=str)], 1
 
 
 def dumps(value):

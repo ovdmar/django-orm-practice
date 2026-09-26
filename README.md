@@ -41,8 +41,8 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
 
 ## What a turn looks like
 
-Every screen has the same three columns — the task, your attempt, the schema — with one line of
-shortcuts above it, so nothing has to be memorised and nothing moves when an attempt lands:
+Every screen has the same three columns — the task, the schema, your attempt (the widest, on the
+right) — with one line of shortcuts above it, so nothing has to be memorised and nothing moves when an attempt lands:
 
 ```
 :h help   :s solution   :hint   :v view   :diff   :sql   :n next   :p prev   :g N goto   :l list   :m models   alt+up/dn screens   ^c clear   ^d quit
@@ -97,9 +97,24 @@ yours so you can compare wording:
 the solution — you had already solved it. A *correct but over budget* answer deliberately does
 not print it, since the query count is still the open question; `:s` if you want it anyway.)
 
-Rows are clipped to the column; `:v` opens the whole answer in a full-screen pager (`q`
-leaves it), `:v ref` does the same for the reference answer and `:v sql` for every query the
-attempt ran.
+Everything in that column wraps rather than being cut off — rows, error messages, the SQL. A row
+that would take more than three lines is the exception: it is trimmed with `...`. `:v` opens the
+whole answer in a full-screen pager (`q` leaves it), `:v ref` does the same for the reference
+answer, `:v sql` for every query the attempt ran, and `:v err` for the full traceback.
+
+When your snippet raises, the snippet itself is printed with the offending line marked, so you
+can see where it broke rather than reading engine frames:
+
+```
+✗ your code raised
+TypeError: ...remove() argument after * must be an iterable, not int
+
+  1 a = Author.objects.get(pk=1)
+  2 f = a.followers.order_by("id").values_list("id",
+     flat=True).first()
+> 3 a.followers.remove(*f)
+:v err for the traceback
+```
 
 ### Screens
 
@@ -137,19 +152,14 @@ starts without it.
 Type a query at `>>>`. The value of the last expression in your snippet is what gets graded
 (or a variable named `answer`).
 
-**Enter adds a line; shift+enter runs it.** So a two-statement answer is typed as two lines and
-graded as one measured unit — each submission gets a fresh namespace and is rolled back, so it
-has to arrive together. A reminder sits above the prompt:
+* A **complete expression** runs the moment you hit enter — that covers most exercises.
+* For **several statements**, type it like a file: an assignment or an open block keeps the
+  reader collecting (dedent to close a block), and a **blank line runs the whole snippet** as
+  one measured unit. If the first line is already a complete expression, end it with a `\` or
+  open the snippet with `:ml` so it does not run early.
 
-```
-  enter = new line   shift+enter = run   (alt+enter and ctrl+j run it too)
-```
-
-Those alternatives are not decoration. **Shift+Enter is indistinguishable from Enter in most
-terminals** — only those implementing the kitty keyboard protocol (`\e[13;2u`: kitty, WezTerm,
-Ghostty, foot) or xterm's `modifyOtherKeys` (`\e[27;2;13~`) send something different. All four
-sequences are bound, and **alt+enter** and **ctrl+j** work everywhere, so you always have a way
-to submit. `:key` reports what your terminal sends for any combination.
+Each submission gets a fresh namespace and is rolled back, so an answer that needs two
+statements has to arrive as one snippet.
 
 **ctrl+c** clears whatever you are typing and gives you a fresh prompt — and aborts a query of
 your own that is still running, without ending the session. To leave, use **ctrl+d**, `exit()`

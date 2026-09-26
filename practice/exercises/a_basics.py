@@ -46,7 +46,8 @@ EXERCISES = [
       order_matters=True),
 
     E(slug="distinct-lastnames", section=S, title="distinct() + slice",
-      prompt="Return the first 10 distinct publisher lastnames in alphabetical order, as a flat list.",
+      prompt="Return the first 10 publisher lastnames in alphabetical order, with no repeats, "
+             "as a flat list.",
       solution="Publisher.objects.order_by('lastname').values_list('lastname', flat=True).distinct()[:10]",
       order_matters=True,
       hints=["distinct() looks at the selected columns only - so select just the one column."]),
@@ -131,12 +132,13 @@ EXERCISES = [
 
     E(slug="authors-title-tle", section=S, title="Reverse FK + icontains",
       prompt="Authors who wrote a book with 'tle' anywhere in the title (case-insensitive). "
-             "Return distinct Author objects.",
+             "Return Author objects, each one once.",
       solution="Author.objects.filter(books__title__icontains='tle').distinct()"),
 
     E(slug="q-objects", section=S, title="Q objects",
-      prompt="Authors whose firstname starts with 'a' (case-insensitive) AND who either have "
-             "popularity_score > 5 or joined after 2014-12-31. Use Q objects.",
+      prompt="Authors whose firstname starts with 'a' (case-insensitive) who additionally either "
+             "have popularity_score > 5 or joined after 2014-12-31.",
+      hints=["filter(**kwargs) can only AND its conditions together."],
       solution="Author.objects.filter(Q(firstname__istartswith='a') & "
                "(Q(popularity_score__gt=5) | Q(joindate__gt=date(2014, 12, 31))))"),
 
@@ -157,7 +159,8 @@ EXERCISES = [
 
     E(slug="multi-filter-no-q", section=S, title="Four conditions, no Q",
       prompt="Authors who joined in 2012 or later, have popularity_score >= 4, joined on a day-of-month "
-             "greater than 12, and whose firstname starts with 'a' (case-insensitive). No Q objects.",
+             "greater than 12, and whose firstname starts with 'a' (case-insensitive). "
+             "All four conditions in one filter() call.",
       solution="Author.objects.filter(joindate__year__gte=2012, popularity_score__gte=4,\n"
                "                      joindate__day__gt=12, firstname__istartswith='a')"),
 
@@ -210,8 +213,8 @@ EXERCISES = [
                "['popularity_score__max']"),
 
     E(slug="count-authors-ab", section=S, title="count() across a join",
-      prompt="How many distinct authors wrote a book whose title contains 'ab' (case-insensitive)? "
-             "Return the number.",
+      prompt="How many different authors wrote a book whose title contains 'ab' "
+             "(case-insensitive)? Return the number.",
       solution="Author.objects.filter(books__title__icontains='ab').distinct().count()"),
 
     E(slug="followers-gt-216", section=S, title="Annotate then filter",
