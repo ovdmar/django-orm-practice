@@ -150,6 +150,10 @@ Type a query at `>>>`. The value of the last expression in your snippet is what 
 Each submission gets a fresh namespace and is rolled back, so an answer that needs two
 statements has to arrive as one snippet.
 
+**ctrl+c** clears whatever you are typing and gives you a fresh prompt — and aborts a query of
+your own that is still running, without ending the session. To leave, use **ctrl+d**, `exit()`
+or `:q`.
+
 ### Commands
 
 The bar above each exercise lists these; `:h` prints them with descriptions and `:k` hides the

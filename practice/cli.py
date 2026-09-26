@@ -36,7 +36,9 @@ COMMANDS = """
   :b :back       same as alt+up          :f :fwd       same as alt+down
   :key           show what a key combination sends, to bind it yourself
   :stats         your progress            :reset        wipe saved progress
-  :q :quit       leave (progress is saved after every attempt)
+  :q :quit       leave - ctrl+d or exit() do the same
+                 (progress is saved after every attempt)
+  ctrl+c         throw away what you are typing and start the line again
 """
 
 
@@ -46,8 +48,9 @@ KEYS = [
     (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view all (q exits)"),
     (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"),
     (":l", "list"), (":m", "models"), (":sc", "schema"), (":lay", "layout"),
-    (":ml", "multi-line (blank line runs)"), (":stats", ""), (":q", "quit"),
-    ("alt+up/down", "past screens"),
+    (":ml", "multi-line (blank line runs)"), (":stats", ""),
+    ("alt+up/down", "past screens"), ("ctrl+c", "clear the line"),
+    (":q", "quit (ctrl+d, exit() too)"),
 ]
 
 
@@ -587,14 +590,23 @@ class Session:
         self.current = get(self.number) or EXERCISES[0]
         self.hint_at = 0
         self.show(self.current)
+        cancelled = 0
         while True:
             try:
                 code = self.read()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError:                      # ctrl+d
                 print()
                 break
+            except KeyboardInterrupt:             # ctrl+c: drop the line, stay put
+                print()
+                cancelled += 1
+                if cancelled == 1:
+                    print(ink.dim("  line cleared - ctrl+d or exit() to leave"))
+                continue
             if code is None:
                 continue
+            if code.strip() in ("exit", "exit()", "quit", "quit()"):
+                break
             if code.startswith(":") or code in ("?", "help"):
                 nxt = self.command(code, self.current)
                 if nxt == "quit":
@@ -609,7 +621,11 @@ class Session:
                     progress.set_current(self.data, self.current.number)
                     self.show(self.current)
                 continue
-            grade = engine.grade(self.current, code, self.reference(self.current))
+            try:
+                grade = engine.grade(self.current, code, self.reference(self.current))
+            except KeyboardInterrupt:             # a runaway query of your own making
+                print(ink.dim("\n  interrupted"))
+                continue
             self.last, self.last_grade = grade.attempt, grade
             progress.record_attempt(self.data, self.current, grade)
             self.paint(self.current, grade)
@@ -621,9 +637,12 @@ class Session:
                 print(ink.dim("  [enter] next exercise, or keep working on this one"))
                 try:
                     typed = input().strip()
-                except (EOFError, KeyboardInterrupt):
+                except EOFError:
                     print()
                     break
+                except KeyboardInterrupt:
+                    print()
+                    continue
                 if typed:
                     self.pending = typed
                     continue
