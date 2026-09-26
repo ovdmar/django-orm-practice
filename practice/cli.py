@@ -50,6 +50,14 @@ class Ink:
     def __call__(self, code, text):
         return f"\033[{code}m{text}\033[0m" if self.on else text
 
+    def rl(self, code, text):
+        """A coloured readline prompt.
+
+        The escapes must sit between \001 and \002 or readline counts them as
+        visible width, and every cursor move is then off by that many columns.
+        """
+        return f"\001\033[{code}m\002{text}\001\033[0m\002" if self.on else text
+
     def bold(self, t): return self("1", t)
     def dim(self, t): return self("2", t)
     def red(self, t): return self("31", t)
@@ -486,7 +494,7 @@ class Session:
                 self.told_multiline = True
                 print(self.ink.dim("    (writing a snippet - type it like a file, dedent to close "
                                    "a block; a blank line runs it)"))
-            line = input(self.ink.blue(">>> " if not (lines or forced) else "... "))
+            line = input(self.ink.rl("36", ">>> " if not (lines or forced) else "... "))
             if not lines and line.strip() in (":multi", ":ml"):
                 forced = self.told_multiline = True
                 print(self.ink.dim("    (multi-statement snippet: blank line runs it)"))

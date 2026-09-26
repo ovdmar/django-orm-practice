@@ -159,6 +159,9 @@ bar (`--no-keys` starts without it).
 * Answers are compared after deep normalisation (models → `Model#pk`, dates → ISO, decimals
   rounded, lists sorted unless the task says the order matters), so `values_list` order or a
   set vs a list will not fail you — but returning dicts where tuples were asked for will.
+* `.venv/bin/python tests/test_prompt_width.py` drives the CLI through a pty and checks that
+  readline knows the true width of the coloured prompt — get that wrong and the visible cursor
+  refuses to walk back over the first few characters of your query.
 * `./orm --verify` is the test suite: every reference solution must run, return a non-empty
   answer, and — where the exercise ships a deliberately naive variant — that variant must
   return the *same* answer in *more* queries. That is what keeps the budgets honest.
