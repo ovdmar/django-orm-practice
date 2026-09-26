@@ -15,6 +15,10 @@ from django.test.utils import CaptureQueriesContext
 TXN_NOISE = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b", re.I)
 
 
+class UserInputError(Exception):
+    """Not a bug in the snippet's SQL - the snippet itself is unusable."""
+
+
 class _Rollback(Exception):
     """Raised to unwind the atomic block so every attempt leaves the DB pristine."""
 
@@ -98,7 +102,7 @@ def canonical(value, order_matters):
 def _exec_eval(code, ns):
     tree = ast.parse(code, mode="exec")
     if not tree.body:
-        raise ValueError("Nothing to run.")
+        raise UserInputError("Nothing to run.")
     last = tree.body[-1]
     if isinstance(last, ast.Expr):
         if tree.body[:-1]:
@@ -108,9 +112,10 @@ def _exec_eval(code, ns):
     for key in ("answer", "result", "out", "qs"):
         if key in ns:
             return ns[key]
-    raise ValueError(
-        "Your snippet ends with a statement, not an expression.\n"
-        "Finish with the expression to grade, or assign it to `answer`."
+    raise UserInputError(
+        "Your snippet ends with a statement, not an expression, and defines no `answer`.\n"
+        "Each submission runs on its own (fresh namespace, rolled back afterwards), so send the\n"
+        "whole thing at once and finish with the expression to grade - or assign it to `answer`."
     )
 
 
@@ -166,6 +171,11 @@ def run(code, consume=None, order_matters=False):
                 raise _Rollback
         except _Rollback:
             pass
+        except UserInputError as exc:
+            attempt.error = str(exc)
+        except SyntaxError as exc:
+            where = f" (line {exc.lineno})" if exc.lineno else ""
+            attempt.error = f"SyntaxError: {exc.msg}{where}"
         except Exception:
             attempt.error = _short_traceback()
     attempt.queries = [q for q in ctx.captured_queries if not TXN_NOISE.match(q["sql"])]

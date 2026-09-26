@@ -1,7 +1,6 @@
 """The REPL: show a task, read a query, grade it, repeat."""
 
 import atexit
-import codeop
 import os
 import readline
 import sys
@@ -12,7 +11,10 @@ from practice.exercises import EXERCISES, SECTIONS, get
 HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".history")
 
 COMMANDS = """
-  <query>        run it - multi-line is fine, keep typing until the statement is complete
+  <query>        an expression runs as soon as you hit enter. Anything else (assignment,
+                 loop, several statements) is collected like a file - dedent to close a
+                 block - and a blank line runs the whole snippet as one measured unit
+  :ml :multi     start a multi-statement snippet (or end a line with \\), blank line runs it
   :s :solution   show the reference solution (and the lesson behind it)
   :hint          one hint at a time
   :n :next       next exercise            :p :prev      previous exercise
@@ -52,6 +54,7 @@ class Session:
         self.last_grade = None
         self.hint_at = 0
         self.pending = None     # a line typed at the "next exercise" prompt
+        self.told_multiline = False
 
     # -- reference answers ------------------------------------------------- #
     def reference(self, ex):
@@ -293,34 +296,53 @@ class Session:
         solved, clean, total = progress.summary(self.data, EXERCISES)
         print(ink.dim(f"  saved - {solved}/{total} solved, {clean} within budget"))
 
+    @staticmethod
+    def _complete_expression(source):
+        """True when the buffer is already a full expression - nothing more to wait for."""
+        import ast
+        try:
+            ast.parse(source, mode="eval")
+            return True
+        except SyntaxError:
+            return False
+
     def read(self):
-        """Read one statement, continuing while it is syntactically incomplete."""
-        compiler = codeop.CommandCompiler()
-        lines = []
+        """Read one snippet.
+
+        A complete expression runs as soon as you hit enter. Anything else - an
+        assignment, a loop, several statements - keeps reading until a blank line,
+        because the whole snippet has to be measured as one unit.
+        """
+        lines, forced = [], False
         if self.pending is not None:
             pending, self.pending = self.pending, None
             if pending.startswith(":") or pending in ("?", "help"):
                 return pending
-            lines.append(pending)
-            try:
-                if compiler(pending, "<answer>", "exec") is not None:
-                    return pending
-            except SyntaxError:
+            if self._complete_expression(pending):
                 return pending
+            lines.append(pending)
         while True:
-            line = input(self.ink.blue(">>> " if not lines else "... "))
+            if lines and not self.told_multiline:
+                self.told_multiline = True
+                print(self.ink.dim("    (writing a snippet - type it like a file, dedent to close "
+                                   "a block; a blank line runs it)"))
+            line = input(self.ink.blue(">>> " if not (lines or forced) else "... "))
+            if not lines and line.strip() in (":multi", ":ml"):
+                forced = self.told_multiline = True
+                print(self.ink.dim("    (multi-statement snippet: blank line runs it)"))
+                continue
             if not lines and (line.strip().startswith(":") or line.strip() in ("?", "help")):
                 return line.strip()
+            if (lines or forced) and not line.strip():
+                return "\n".join(lines)
+            if line.rstrip().endswith("\\"):        # explicit continuation
+                forced = True
+                line = line.rstrip()[:-1]
             lines.append(line)
             source = "\n".join(lines)
             if not source.strip():
                 return None
-            try:
-                if compiler(source, "<answer>", "exec") is not None:
-                    return source
-            except SyntaxError:
-                return source        # let the engine report it
-            if lines[-1].strip() == "":  # blank line ends a block
+            if not forced and self._complete_expression(source):
                 return source
 
     def command(self, raw, ex):

@@ -64,13 +64,24 @@ code that will touch your result, so it tells you which related objects get walk
 exactly what decides your query count. Return the queryset (or list of objects); don't do the
 walking yourself.
 
-Type a query at `>>>`. Multi-line input continues until the statement is complete, so
-assignments, loops and a final expression all work — the value of the last expression is
-graded (or a variable named `answer`).
+### Typing answers
+
+Type a query at `>>>`. The value of the last expression in your snippet is what gets graded
+(or a variable named `answer`).
+
+* A **complete expression** runs the moment you hit enter — that covers most exercises.
+* For **several statements**, type it like a file: an assignment or an open block keeps the
+  reader collecting (dedent to close a block), and a **blank line runs the whole snippet** as
+  one measured unit. If the first line is already a complete expression, end it with a `\` or
+  open the snippet with `:ml` so it does not run early.
+
+Each submission gets a fresh namespace and is rolled back, so an answer that needs two
+statements has to arrive as one snippet.
 
 ### Commands
 
 ```
+:ml :multi     start a multi-statement snippet (blank line runs it)
 :s :solution   reference solution + the lesson behind it
 :hint          one hint at a time
 :sql           the SQL your last attempt actually ran (repeats collapsed)
