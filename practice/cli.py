@@ -385,9 +385,8 @@ class Session:
         title = ink.dim(f"   {ex.title}") if self.revealed(ex) else ""
         head += [
             ink.blue("─" * rule),
-            ink.bold(f"Exercise #{ex.number}") + ink.dim(f" of {len(EXERCISES)}   [") +
-            ink.dim(ex.section) + ink.dim(" · ") + self.level_ink(ex) + ink.dim("]") +
-            title + badge,
+            ink.bold(f"Exercise #{ex.number}") + ink.dim(f" of {len(EXERCISES)} · ") +
+            self.level_ink(ex) + title + badge,
             ink.blue("─" * rule),
         ]
 

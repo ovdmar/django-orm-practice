@@ -13,7 +13,8 @@ exercise, and a difficulty tag on each one.
 86 exercises, in four sections:
 
 Each exercise is tagged **easy** (31), **medium** (41) or **hard** (14), shown in its header and
-in `:l`; `./orm --level hard` starts at the first hard one.
+in `:l`; `./orm --level hard` starts at the first hard one. The header names the difficulty and
+nothing else — the section would tell you which method to reach for.
 
 | section | n | what it drills |
 |---|---|---|
@@ -57,7 +58,7 @@ right) — with one line of shortcuts above it, so nothing has to be memorised a
 ```
 :h help   :s solution   :hint   :v view   :diff   :sql   :n next   :p prev   :g N goto   :l list   :m models   alt+up/dn screens   ^c clear   ^d quit
 ────────────────────────────────────────────────────────────────────────────────────
-Exercise #54 of 86   [prefetch_related · easy]
+Exercise #54 of 86 · easy
 ────────────────────────────────────────────────────────────────────────────────────
   Authors with pk <= 20,   │ >>> ...                        │ Author
   each with their books.   │                                │   id               AutoField(pk)

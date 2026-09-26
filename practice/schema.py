@@ -139,10 +139,6 @@ def describe(model, width=40, keep=None, mark_more=True, tokens=()):
             for line in textwrap.wrap(choices, width - 4, initial_indent="    ",
                                       subsequent_indent="    "):
                 lines.append(line)
-    expression = _str_expr(model)
-    if expression:
-        lines += textwrap.wrap(f"str: {expression}", max(16, width - 2),
-                               initial_indent="  ", subsequent_indent="        ")
     rels, attnames, hidden = _relations(model), _attnames(model), 0
     for name, rel in rels.items():
         if keep is None or name in keep:
@@ -153,6 +149,11 @@ def describe(model, width=40, keep=None, mark_more=True, tokens=()):
             hidden += 1
     if hidden and mark_more:
         lines.append(f"  +{hidden} more relation{'s' if hidden > 1 else ''}")
+    expression = _str_expr(model)
+    if expression:
+        lines.append("")
+        lines += textwrap.wrap(f"str: {expression}", max(16, width - 2),
+                               initial_indent="  ", subsequent_indent="        ")
     return lines
 
 
