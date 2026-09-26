@@ -369,7 +369,7 @@ class Session:
     def build_frame(self, ex, grade):
         """Lay out one screen, sized so that it fits the window without scrolling."""
         ink, ref = self.ink, self.reference(ex)
-        contract = engine.source_of(ex.consume)
+        contract = ex.contract
         plan, width = self._plan()
         done = self.data["exercises"].get(ex.slug, {})
         badge = ""

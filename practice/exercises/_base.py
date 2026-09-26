@@ -1,3 +1,6 @@
+import inspect
+import re
+import textwrap
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
@@ -9,6 +12,22 @@ SECTIONS = {
     "prefetch_related": "prefetch_related: M2M, reverse FK, Prefetch(), nesting",
     "advanced": "annotate / Subquery / window functions / conditional aggregation",
 }
+
+
+def consume_source(fn):
+    """The consume lambda's source, read once at import.
+
+    inspect.getsource() locates a lambda by line number and reads the file live, so
+    resolving this lazily would show a neighbouring exercise's lambda after the file
+    is edited under a running session. Captured here, it cannot drift.
+    """
+    if fn is None:
+        return ""
+    try:
+        source = textwrap.dedent(inspect.getsource(fn)).strip()
+    except (OSError, TypeError):
+        return ""
+    return re.sub(r"^consume\s*=\s*", "", source).rstrip(",")
 
 
 @dataclass
@@ -23,6 +42,7 @@ class Exercise:
     order_matters: bool = False
     naive: Optional[str] = None   # correct but query-hungry; --verify proves it costs more
     notes: str = ""               # the lesson, shown together with the solution
+    contract: str = ""            # consume's source, filled in at import
     level: str = "medium"         # easy / medium / hard
     mutates: bool = False
     number: int = 0
@@ -37,5 +57,6 @@ def collect(*modules):
     for mod in modules:
         for ex in mod.EXERCISES:
             ex.number = len(out) + 1
+            ex.contract = consume_source(ex.consume)
             out.append(ex)
     return out

@@ -251,6 +251,10 @@ bar (`--no-keys` starts without it).
 * Answers are compared after deep normalisation (models → `Model#pk`, dates → ISO, decimals
   rounded, lists sorted unless the task says the order matters), so `values_list` order or a
   set vs a list will not fail you — but returning dicts where tuples were asked for will.
+* `tests/test_contract_stability.py` checks that the contract shown on screen behaves exactly
+  like the consume it stands for, and that editing an exercise file under a running session does
+  not make it drift onto a neighbour's lambda. `./orm --verify` re-checks the first half for all
+  86.
 * `tests/test_screen_history.py` drives the CLI through a pty and checks alt/ctrl+arrows really
   move between screens while plain arrows stay with readline history;
   `tests/test_frames_fit.py` builds both screens of all 86 exercises at four terminal heights

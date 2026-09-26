@@ -510,16 +510,3 @@ def _trim(text, width):
     text = " ".join(text.split())
     return text if len(text) <= width else text[: width - 1] + "…"
 
-
-def source_of(fn):
-    """The consume function's source, shown to the user as the output contract."""
-    if fn is None:
-        return None
-    try:
-        import inspect
-
-        src = textwrap.dedent(inspect.getsource(fn)).strip()
-    except (OSError, TypeError):
-        return None
-    src = re.sub(r"^consume\s*=\s*", "", src).rstrip(",")
-    return src

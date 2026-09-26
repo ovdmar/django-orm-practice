@@ -31,8 +31,15 @@ def check(exercises=None, quiet=False):
                 note = f"  NAIVE NOT SLOWER ({nv.nqueries} vs {ref.nqueries})"
             else:
                 note = f"  naive={nv.nqueries}"
-        if engine.source_of(ex.consume) is None and ex.consume is not None:
-            problems.append((ex, "consume source unavailable", ""))
+        if ex.consume is not None:
+            if not ex.contract:
+                problems.append((ex, "consume source unavailable", ""))
+            else:
+                # what the screen shows must be what the grader runs
+                shown = engine.run(ex.solution, eval(ex.contract), ex.order_matters)
+                if shown.error or shown.value != ref.value:
+                    problems.append((ex, "displayed contract disagrees",
+                                     shown.error or "a different answer"))
         if not quiet:
             n = len(ref.value) if isinstance(ref.value, (list, dict)) else 1
             print(f"{row} {ref.nqueries:>3}q  rows={n:<5}{note}")
