@@ -97,6 +97,25 @@ yours so you can compare wording:
 the solution — you had already solved it. A *correct but over budget* answer deliberately does
 not print it, since the query count is still the open question; `:s` if you want it anyway.)
 
+When the answer is **wrong**, the column shows the difference instead of your rows — which rows
+are missing, which ones the reference does not have, or, when the rows match, that only the order
+is off:
+
+```
+✗ wrong answer (1 query)
+
+you returned 15 row(s), the reference has 20
+5 row(s) missing from yours:
+  ["Broken Compass", "Fischer"]
+  ["Alvarez", "Bitter Meridian"]
+  ... 2 more
+:v for your rows, :v ref for the reference, :diff for both
+```
+
+Dict answers are compared key by key (`missing key(s): total_price`), scalars head to head
+(`expected: 8096 / you have: 6364`), and a wrong shape is named as such (`expected a list of 700
+row(s), you returned a number`).
+
 Everything in that column wraps rather than being cut off — rows, error messages, the SQL. A row
 that would take more than three lines is the exception: it is trimmed with `...`. `:v` opens the
 whole answer in a full-screen pager (`q` leaves it), `:v ref` does the same for the reference

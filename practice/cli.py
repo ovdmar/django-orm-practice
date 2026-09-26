@@ -297,20 +297,22 @@ class Session:
             head.append(("the repeated query below is the N+1", ink.dim))
         head = self._wrap_items(head, width)
 
+        if not grade.ok:
+            # the diff is more use than your rows here, so it takes their place
+            report = engine.diff_report(att.value, self.reference(ex).value, ex.order_matters)
+            body = self._wrap_items(
+                [(text, ink.dim if text.startswith("  ") else ink.yellow) for text in report],
+                width)[:max(2, room - len(head) - len(sql) - 3)]
+            return (head + [("", None)] + body
+                    + self._wrap_items([(":v for your rows, :v ref for the reference, "
+                                         ":diff for both", ink.dim)], width) + sql)
+
         rows, shown, total = self._rows_block(
             att.value, width, max(2, room - len(head) - len(sql) - 2))
         out = head + [("", None)] + [(row, None) for row in rows]
-        tail = []
         if total > shown:
-            tail.append(f"{total} rows in all")
-        if not grade.ok:
-            reference = self.reference(ex)
-            if isinstance(reference.value, list) and isinstance(att.value, list):
-                tail.append(f"reference has {len(reference.value)}")
-        if total > shown or not grade.ok:
-            tail.append(":v to view, :diff to compare" if not grade.ok else ":v to view it all")
-        if tail:
-            out += self._wrap_items([(" - ".join(tail), ink.dim)], width)
+            out += self._wrap_items(
+                [(f"{total} rows in all - :v to view it all", ink.dim)], width)
         return out + sql
 
 

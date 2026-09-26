@@ -1,6 +1,7 @@
 """Run a user's ORM snippet, count the queries it really costs, and grade it."""
 
 import ast
+import collections
 import datetime
 import linecache
 import sys
@@ -418,6 +419,64 @@ def preview(value, limit=6, width=100):
         more = f"\n ... ({len(value)} items total)" if len(value) > limit else ""
         return f"[{head}{more}\n]" if value else "[]  (empty!)"
     return _trim(json.dumps(value, default=str, indent=1), width * 4)
+
+
+def _shape_name(value):
+    if isinstance(value, list):
+        return f"a list of {len(value)} row(s)"
+    if isinstance(value, dict):
+        return f"a dict with {len(value)} key(s)"
+    if isinstance(value, bool) or value is None:
+        return json.dumps(value)
+    if isinstance(value, (int, float)):
+        return "a number"
+    return "a string" if isinstance(value, str) else type(value).__name__
+
+
+def _key(value):
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def diff_report(mine, reference, order_matters=False, limit=3):
+    """Why the answer is wrong, in a few lines: what is missing, what is extra.
+
+    Both values are already normalised, so this compares them as multisets - which
+    is also how they were graded.
+    """
+    if isinstance(reference, list) and isinstance(mine, list):
+        missing = list((collections.Counter(map(_key, reference))
+                        - collections.Counter(map(_key, mine))).elements())
+        extra = list((collections.Counter(map(_key, mine))
+                      - collections.Counter(map(_key, reference))).elements())
+        if not missing and not extra:
+            return [f"the same {len(reference)} rows, but in a different order"
+                    if order_matters else f"the same {len(reference)} rows"]
+        out = [f"you returned {len(mine)} row(s), the reference has {len(reference)}"]
+        for label, rows in ((f"missing from yours", missing),
+                            ("the reference does not have", extra)):
+            if not rows:
+                continue
+            out.append(f"{len(rows)} row(s) {label}:")
+            out += ["  " + row for row in rows[:limit]]
+            if len(rows) > limit:
+                out.append(f"  ... {len(rows) - limit} more")
+        return out
+    if isinstance(reference, dict) and isinstance(mine, dict):
+        out = []
+        absent = [k for k in reference if k not in mine]
+        spare = [k for k in mine if k not in reference]
+        if absent:
+            out.append("missing key(s): " + ", ".join(absent))
+        if spare:
+            out.append("unexpected key(s): " + ", ".join(spare))
+        for key in reference:
+            if key in mine and mine[key] != reference[key]:
+                out.append(f"{key}: expected {_key(reference[key])}, "
+                           f"you have {_key(mine[key])}")
+        return out or ["the same keys and values in a different order"]
+    if type(mine) is not type(reference):
+        return [f"expected {_shape_name(reference)}, you returned {_shape_name(mine)}"]
+    return [f"expected:  {_key(reference)}", f"you have:  {_key(mine)}"]
 
 
 def row_texts(value, limit=60):
