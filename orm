@@ -1,0 +1,4 @@
+#!/bin/sh
+# ./orm [--from N] [--only N] [--section name] [--list] [--verify] [--restart]
+here="$(cd "$(dirname "$0")" && pwd)"
+exec "$here/.venv/bin/python" "$here/practice.py" "$@"

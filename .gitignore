@@ -1,0 +1,5 @@
+.venv/
+.progress.json
+.history
+__pycache__/
+*.pyc
