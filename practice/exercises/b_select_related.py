@@ -19,7 +19,8 @@ EXERCISES = [
       notes="Without select_related each b.publisher is its own SELECT: 1 + 20 queries."),
 
     E(slug="sr-review-chain", level="medium", section=S, title="Two levels deep",
-      prompt="The 30 most upvoted reviews, ordered by -upvotes then id. Some books have no author.",
+      prompt="The 30 most upvoted reviews, highest upvotes first, ties broken by the lower id. Some "
+      "books have no author.",
       consume=lambda qs: [(r.rating, r.book.title, r.book.author and r.book.author.lastname, r.book.publisher.country) for r in qs],
       solution="Review.objects.select_related('book__author', 'book__publisher')"
                ".order_by('-upvotes', 'id')[:30]",
@@ -57,8 +58,8 @@ EXERCISES = [
              "the data rather than the row count."),
 
     E(slug="sr-only", level="hard", section=S, title="select_related + only()",
-      prompt="The 50 books with the most pages, ordered by -page_count then id. Fetch no more "
-             "columns than the grader needs (primary keys aside) and still pay a single query.",
+      prompt="The 50 books with the most pages, most pages first, ties broken by the lower id. Fetch no "
+      "more columns than the grader needs (primary keys aside) and still pay a single query.",
       consume=lambda qs: [(b.title, b.genre, b.publisher.country) for b in qs],
       solution="Book.objects.select_related('publisher').only('title', 'genre', 'publisher__country')"
                ".order_by('-page_count', 'id')[:50]",
@@ -108,8 +109,8 @@ EXERCISES = [
             "a liability in real code: add a FK later and every query silently grows a JOIN."),
 
     E(slug="sr-values-instead", level="easy", section=S, title="values() as the alternative",
-      prompt="The 20 cheapest books that have a price (order by price, id) as a list of dicts with the "
-      "keys 'title' and 'publisher__lastname'. No model instances.",
+      prompt="The 20 cheapest books that have a price (cheapest first, ties broken by the lower id) as a "
+      "list of dicts with the keys 'title' and 'publisher__lastname'. No model instances.",
       solution="Book.objects.filter(price__isnull=False).order_by('price', 'id')"
                ".values('title', 'publisher__lastname')[:20]",
       order_matters=True,

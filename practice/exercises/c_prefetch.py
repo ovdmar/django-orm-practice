@@ -97,7 +97,7 @@ EXERCISES = [
 
     E(slug="pf-sliced", level="hard", section=S, title="Sliced prefetch",
       prompt="Authors with pk <= 10. The grader reads a.recent_books: that author's 3 most recently "
-      "published books, ordered by -published_date then id.",
+      "published books, newest first, ties broken by the lower id.",
       consume=lambda qs: [(a.lastname, [b.title for b in a.recent_books]) for a in qs],
       solution="Author.objects.filter(pk__lte=10).prefetch_related(\n"
                "    Prefetch('books', queryset=Book.objects.order_by('-published_date', 'id')[:3],\n"

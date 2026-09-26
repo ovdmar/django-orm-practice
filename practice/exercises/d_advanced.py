@@ -58,8 +58,8 @@ EXERCISES = [
              "a subquery so the window result can be filtered."),
 
     E(slug="ad-units-sold", level="medium", section=S, title="Sum across a reverse FK",
-      prompt="The 10 best selling books: (title, total quantity ordered), ordered by -quantity then id. "
-      "Books that were never ordered are out.",
+      prompt="The 10 best selling books: (title, total quantity ordered), highest quantity first, ties "
+      "broken by the lower id. Books that were never ordered are out.",
       solution="Book.objects.annotate(sold=Sum('order_items__quantity')).exclude(sold=None)"
                ".order_by('-sold', 'id').values_list('title', 'sold')[:10]",
       order_matters=True,
