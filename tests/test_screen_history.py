@@ -23,6 +23,7 @@ ALT_UP, ALT_DOWN = b"\x1b[1;3A", b"\x1b[1;3B"
 CTRL_UP = b"\x1b[1;5A"
 ESC_PREFIX_UP = b"\x1b\x1b[A"
 PLAIN_UP = b"\x1b[A"
+SUBMIT = b"\x1b\r"          # alt+enter: Enter now adds a line instead of running
 
 
 class Cli:
@@ -51,7 +52,7 @@ class Cli:
 
     def close(self):
         try:
-            os.write(self.master, b"\x03:q\r")
+            os.write(self.master, b"\x03:q" + SUBMIT)
             self.drain(0.8)
         except OSError:
             pass
@@ -68,7 +69,7 @@ def main():
     failures = []
     try:
         assert ">>> " in cli.drain(8.0), "never reached the prompt"
-        cli.send(b"Author.objects.filter(pk__lte=20)\r", 1.5)      # a second screen
+        cli.send(b"Author.objects.filter(pk__lte=20)" + SUBMIT, 1.5)   # a second screen
 
         for name, key, expected in (
             ("alt+up", ALT_UP, ("1", "2")),

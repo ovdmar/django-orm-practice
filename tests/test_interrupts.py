@@ -16,6 +16,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SUBMIT = b"\x1b\r"          # alt+enter: Enter now adds a line instead of running
 
 
 class Cli:
@@ -77,7 +78,7 @@ def main():
         failures += check("ctrl+c keeps the session", cli.alive())
         failures += check("ctrl+c says the line is cleared", "line cleared" in out,
                           repr(out[-120:]))
-        out = cli.send(b"Book.objects.all()\r", 2.0)       # the leftovers would break this
+        out = cli.send(b"Book.objects.all()" + SUBMIT, 2.0)   # leftovers would break this
         failures += check("the abandoned line is gone", "✓ correct" in out,
                           repr(out[-160:]))
         out = cli.send(b"\x03", 0.8)
@@ -90,12 +91,12 @@ def main():
     try:
         cli.drain(8.0)
         # a runaway comprehension: ^C must abort the run, not the session
-        cli.send(b"sum(1 for _ in range(10**10)) and Book.objects.all()\r", 1.5)
+        cli.send(b"sum(1 for _ in range(10**10)) and Book.objects.all()" + SUBMIT, 1.5)
         out = cli.send(b"\x03", 2.0)
         failures += check("ctrl+c aborts a running query", "interrupted" in out,
                           repr(out[-120:]))
         failures += check("the session survives that", cli.alive())
-        out = cli.send(b"Book.objects.all()\r", 2.5)
+        out = cli.send(b"Book.objects.all()" + SUBMIT, 2.5)
         failures += check("and still grades afterwards", "correct" in out,
                           repr(out[-120:]))
     finally:
@@ -104,7 +105,7 @@ def main():
     cli = Cli("--only", "1")
     try:
         cli.drain(8.0)
-        out = cli.send(b"exit()\r", 2.0)
+        out = cli.send(b"exit()" + SUBMIT, 2.0)
         failures += check("exit() leaves", "saved -" in out, repr(out[-120:]))
         time.sleep(0.3)
         failures += check("exit() ends the process", not cli.alive())

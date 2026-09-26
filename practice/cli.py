@@ -15,10 +15,9 @@ from practice.exercises import EXERCISES, SECTIONS, get
 HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".history")
 
 COMMANDS = """
-  <query>        an expression runs as soon as you hit enter. Anything else (assignment,
-                 loop, several statements) is collected like a file - dedent to close a
-                 block - and a blank line runs the whole snippet as one measured unit
-  :ml :multi     start a multi-statement snippet (or end a line with \\), blank line runs it
+  <query>        type it over as many lines as you like - enter adds a line, and
+                 shift+enter (or alt+enter, or ctrl+j) runs the whole snippet as one
+                 measured unit
   :s :solution   show the reference solution (and the lesson behind it)
   :hint          one hint at a time
   :n :next       next exercise            :p :prev      previous exercise
@@ -47,7 +46,7 @@ KEYS = [                      # in priority order: the tail is dropped if it wil
     (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view"), (":diff", ""),
     (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"), (":l", "list"),
     (":m", "models"), ("alt+up/dn", "screens"), ("^c", "clear"), ("^d", "quit"),
-    (":ml", "multi-line"), (":stats", ""), (":sc", "schema"), (":fs", "fullscreen"),
+    (":stats", ""), (":sc", "schema"), (":fs", "fullscreen"),
     (":k", "keys"),
 ]
 
@@ -86,7 +85,6 @@ class Session:
         self.last_grade = None
         self.hint_at = 0
         self.pending = None     # a line typed at the "next exercise" prompt
-        self.told_multiline = False
         self.show_schema = self.data.get("schema", True)
         self.show_keys = self.data.get("keys", True)
         self.fullscreen = self.data.get("fullscreen", True)
@@ -121,8 +119,8 @@ class Session:
         """
         width = shutil.get_terminal_size((80, 24)).columns
         gaps = 3 * (2 if self.show_schema else 1) + 1
-        schema_w = (38 if width >= 120 else max(24, min(38, width // 3))) \
-            if self.show_schema else 0
+        # wider than it used to be: the relation lines now carry reverse names too
+        schema_w = max(26, min(44, width // 4 + 6)) if self.show_schema else 0
         left = max(30, width - schema_w - gaps)
         task_w = max(18, min(40, left // 3))   # 18 fits "budget: 2 queries"
         plan = [("task", task_w), ("result", left - task_w)]
@@ -283,11 +281,16 @@ class Session:
         self.frame_at = None
         self.render(lines)
 
+    @staticmethod
+    def screen_room(note=False):
+        """Lines a screen may use: the window, less the prompt and its reminder."""
+        height = shutil.get_terminal_size((80, 24)).lines
+        return max(8, height - (6 if note else 5))
+
     def render(self, lines, note=None):
         """Draw a screen. In fullscreen mode it replaces what is on display."""
         ink = self.ink
-        height = shutil.get_terminal_size((80, 24)).lines
-        room = max(8, height - (4 if note else 3))
+        room = self.screen_room(note is not None)
         if self.fullscreen:
             sys.stdout.write("\033[H\033[2J")
         for line in lines[:room]:
@@ -341,8 +344,7 @@ class Session:
         if grade is not None and not (grade.optimal or grade.better):
             tail.append(ink.dim("  try again, :hint, or :s for the solution"))
 
-        height = shutil.get_terminal_size((80, 24)).lines
-        body_room = max(6, height - 3 - len(head) - len(tail))
+        body_room = max(6, self.screen_room() - len(head) - len(tail))
 
         cells = {}
         for name, w in plan:
@@ -382,12 +384,28 @@ class Session:
                     note=f"  {where}   alt+up / alt+down to move   "
                          f"the prompt belongs to Exercise #{self.current.number}")
 
-    def bind_keys(self):
-        """Wire alt/ctrl + up/down to the screen history.
+    SUBMIT_KEYS = (
+        r"\e[13;2u",        # kitty keyboard protocol (kitty, wezterm, ghostty, foot)
+        r"\e[27;2;13~",     # xterm modifyOtherKeys=2
+        r"\eOM",            # some terminals' keypad enter
+        r"\e\C-m",          # alt+enter - sent by practically everything
+        r"\e\r",
+    )
 
-        readline owns the line, so the binding is a macro that clears whatever is
-        typed and submits ':back'/':fwd' - the same thing you could type by hand.
+    def bind_keys(self):
+        """Enter adds a line; shift+enter (and friends) submit.
+
+        readline has no multi-line mode, but quoted-insert will put a literal
+        newline in the buffer, and Python's input() hands it back with the newlines
+        intact - so Enter becomes "new line" and accept-line has to be asked for.
         """
+        try:
+            readline.parse_and_bind(r'"\C-m": "\C-v\C-j"')   # enter -> newline
+            for key in self.SUBMIT_KEYS:
+                readline.parse_and_bind(f'"{key}": accept-line')
+        except Exception:
+            pass                                            # libedit: enter still submits
+
         sequences = {
             ":back": (r"\e[1;3A", r"\e\e[A", r"\e[1;5A", r"\e[1;9A", r"\e[1;2A"),
             ":fwd": (r"\e[1;3B", r"\e\e[B", r"\e[1;5B", r"\e[1;9B", r"\e[1;2B"),
@@ -611,7 +629,8 @@ class Session:
                 if nxt is None:
                     print(ink.bold("\n  that was the last one. :stats to see how it went."))
                     continue
-                print(ink.dim("  [enter] next exercise, or keep working on this one"))
+                print(ink.dim("  submit an empty line for the next exercise, "
+                              "or keep working on this one"))
                 try:
                     typed = input().strip()
                 except EOFError:
@@ -631,54 +650,15 @@ class Session:
         solved, clean, total = progress.summary(self.data, EXERCISES)
         print(ink.dim(f"  saved - {solved}/{total} solved, {clean} within budget"))
 
-    @staticmethod
-    def _complete_expression(source):
-        """True when the buffer is already a full expression - nothing more to wait for."""
-        import ast
-        try:
-            ast.parse(source, mode="eval")
-            return True
-        except SyntaxError:
-            return False
-
     def read(self):
-        """Read one snippet.
-
-        A complete expression runs as soon as you hit enter. Anything else - an
-        assignment, a loop, several statements - keeps reading until a blank line,
-        because the whole snippet has to be measured as one unit.
-        """
-        lines, forced = [], False
+        """One snippet. Enter adds a line to it; a submit key runs it."""
         if self.pending is not None:
             pending, self.pending = self.pending, None
-            if pending.startswith(":") or pending in ("?", "help"):
-                return pending
-            if self._complete_expression(pending):
-                return pending
-            lines.append(pending)
-        while True:
-            if lines and not self.told_multiline:
-                self.told_multiline = True
-                print(self.ink.dim("    (writing a snippet - type it like a file, dedent to close "
-                                   "a block; a blank line runs it)"))
-            line = input(self.ink.rl("36", ">>> " if not (lines or forced) else "... "))
-            if not lines and line.strip() in (":multi", ":ml"):
-                forced = self.told_multiline = True
-                print(self.ink.dim("    (multi-statement snippet: blank line runs it)"))
-                continue
-            if not lines and (line.strip().startswith(":") or line.strip() in ("?", "help")):
-                return line.strip()
-            if (lines or forced) and not line.strip():
-                return "\n".join(lines)
-            if line.rstrip().endswith("\\"):        # explicit continuation
-                forced = True
-                line = line.rstrip()[:-1]
-            lines.append(line)
-            source = "\n".join(lines)
-            if not source.strip():
-                return None
-            if not forced and self._complete_expression(source):
-                return source
+            return pending
+        print(self.ink.blue("  enter = new line   shift+enter = run") +
+              self.ink.dim("   (alt+enter and ctrl+j run it too)"))
+        text = input(self.ink.rl("36", ">>> "))
+        return text if text.strip() else None
 
     def command(self, raw, ex):
         parts = raw.split()

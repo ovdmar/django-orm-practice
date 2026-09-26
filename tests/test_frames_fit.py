@@ -33,7 +33,7 @@ def main():
         for height in HEIGHTS:
             os.environ["COLUMNS"], os.environ["LINES"] = width, str(height)
             session = Session(start=1, color=False)
-            room, tallest, widest = max(8, height - 3), 0, 0
+            room, tallest, widest = session.screen_room(), 0, 0
             for ex in EXERCISES:
                 reference = session.reference(ex)
                 grade = engine.grade(ex, ex.solution, reference)

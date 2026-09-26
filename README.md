@@ -137,14 +137,19 @@ starts without it.
 Type a query at `>>>`. The value of the last expression in your snippet is what gets graded
 (or a variable named `answer`).
 
-* A **complete expression** runs the moment you hit enter — that covers most exercises.
-* For **several statements**, type it like a file: an assignment or an open block keeps the
-  reader collecting (dedent to close a block), and a **blank line runs the whole snippet** as
-  one measured unit. If the first line is already a complete expression, end it with a `\` or
-  open the snippet with `:ml` so it does not run early.
+**Enter adds a line; shift+enter runs it.** So a two-statement answer is typed as two lines and
+graded as one measured unit — each submission gets a fresh namespace and is rolled back, so it
+has to arrive together. A reminder sits above the prompt:
 
-Each submission gets a fresh namespace and is rolled back, so an answer that needs two
-statements has to arrive as one snippet.
+```
+  enter = new line   shift+enter = run   (alt+enter and ctrl+j run it too)
+```
+
+Those alternatives are not decoration. **Shift+Enter is indistinguishable from Enter in most
+terminals** — only those implementing the kitty keyboard protocol (`\e[13;2u`: kitty, WezTerm,
+Ghostty, foot) or xterm's `modifyOtherKeys` (`\e[27;2;13~`) send something different. All four
+sequences are bound, and **alt+enter** and **ctrl+j** work everywhere, so you always have a way
+to submit. `:key` reports what your terminal sends for any combination.
 
 **ctrl+c** clears whatever you are typing and gives you a fresh prompt — and aborts a query of
 your own that is still running, without ending the session. To leave, use **ctrl+d**, `exit()`
