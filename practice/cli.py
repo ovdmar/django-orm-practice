@@ -24,7 +24,7 @@ COMMANDS = """
   :hint          one hint at a time
   :n :next       next exercise            :p :prev      previous exercise
   :g N :goto N   jump to exercise N       :l :list      list all exercises
-  :v :view       full-screen preview of your answer (q to leave)
+  :v rows        your answer in a full-screen pager (q to leave)
                  :v ref  the reference answer      :v sql  every query it ran
                  :v err  the full traceback of what your code raised
   :sql           the SQL your last attempt actually ran
@@ -47,7 +47,7 @@ Frame = collections.namedtuple("Frame", "number lines")
 
 KEYS = [                      # in priority order: the tail is dropped if it will not fit
     (":h", "help"), ("tab", "completes fields"), (":s", "solution"), (":hint", ""),
-    (":v", "view"), (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"),
+    (":v", "rows"), (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"),
     (":g N", "goto"), (":l", "list"), (":m", "models"), ("alt+up/dn", "screens"),
     ("^c", "clear"), ("^d", "quit"), (":ml", "multi-line"), (":stats", ""),
     (":sc", "schema"), (":fs", "fullscreen"), (":k", "keys"),
@@ -247,7 +247,7 @@ class Session:
             left -= 1
             shown += 1
         if shown < len(shapes):
-            out.append((f"... {len(shapes) - shown} more, :v sql for all", dim))
+            out.append((f"... {len(shapes) - shown} more - :v sql for all of it", dim))
         else:
             out.append((":v sql for the exact text", dim))
         return out
@@ -310,7 +310,7 @@ class Session:
                 [(text, ink.dim if text.startswith("  ") else ink.yellow) for text in report],
                 width)[:max(2, room - len(head) - len(sql) - 3)]
             return (head + [("", None)] + body
-                    + self._wrap_items([(":v for your rows, :v ref for the reference, "
+                    + self._wrap_items([(":v rows for yours, :v ref for the reference, "
                                          ":diff for both", ink.dim)], width) + sql)
 
         rows, shown, total = self._rows_block(
@@ -318,7 +318,7 @@ class Session:
         out = head + [("", None)] + [(row, None) for row in rows]
         if total > shown:
             out += self._wrap_items(
-                [(f"{total} rows in all - :v to view it all", ink.dim)], width)
+                [(f"{total} rows in all - :v rows to see them", ink.dim)], width)
         return out + sql
 
 
@@ -360,7 +360,7 @@ class Session:
             print(line)
         hidden = len(lines) - len(lines[:room])
         if hidden:
-            print(ink.dim(f"  ... {hidden} line(s) did not fit - :v for the answer, "
+            print(ink.dim(f"  ... {hidden} line(s) did not fit - :v rows for the answer, "
                           f":m for the schema"))
         if note:
             print(ink.dim(note))
@@ -420,7 +420,7 @@ class Session:
             else:
                 cell = self._result_cell(ex, grade, w, body_room)
             if len(cell) > body_room:
-                cell = cell[:body_room - 1] + [("... :v / :m for the rest", ink.dim)]
+                cell = cell[:body_room - 1] + [("... :v rows / :m for the rest", ink.dim)]
             cells[name] = cell
         body = self._grid(cells, plan)
         return head + body + tail
@@ -547,15 +547,26 @@ class Session:
             print(ink.dim("  your last attempt:"))
             print("    " + engine.preview(self.last.value, limit=8))
 
+    @staticmethod
+    def _queries(n):
+        return f"{n} quer{'y' if n == 1 else 'ies'}"
+
+    VIEWS = {"rows": ("rows", "mine", "answer", ""), "ref": ("ref", "reference", "solution"),
+             "sql": ("sql", "queries"), "err": ("err", "error", "traceback", "tb")}
+
     def view(self, ex, what=None):
-        """Full-screen preview of a long answer - the pager exits on q."""
-        what = (what or "mine").lower()
-        if what in ("ref", "reference", "solution"):
+        """Full-screen preview - :v rows / :v ref / :v sql / :v err. q leaves it."""
+        asked = (what or "").lower()
+        what = next((name for name, aliases in self.VIEWS.items() if asked in aliases), None)
+        if what is None:
+            print(f"  :v {asked}? one of :v rows, :v ref, :v sql, :v err")
+            return
+        if what == "ref":
             ref = self.reference(ex)
             pager.page(engine.dumps(ref.value),
-                       f"reference answer - Exercise #{ex.number} {ex.title} "
-                       f"({ref.nqueries} queries)")
-        elif what in ("err", "error", "traceback", "tb"):
+                       f"reference answer - Exercise #{ex.number} - {ex.title} "
+                       f"({self._queries(ref.nqueries)})")
+        elif what == "err":
             if self.last is None or not self.last.traceback:
                 print("  no traceback - nothing raised")
             else:
@@ -567,15 +578,14 @@ class Session:
             body = "\n\n".join(f"{i:>3}. [{q['time']}s] {q['sql']}"
                                 for i, q in enumerate(self.last.queries, 1))
             pager.page(body or "no queries at all",
-                       f"exact SQL - {len(self.last.queries)} "
-                       f"quer{'y' if len(self.last.queries) == 1 else 'ies'} "
+                       f"exact SQL - {self._queries(len(self.last.queries))} "
                        f"from your last attempt")
         elif self.last is None or self.last.error:
-            print("  no result to view - run a query first")
+            print("  no rows to view - run a query first")
         else:
             pager.page(engine.dumps(self.last.value),
                        f"your last answer - {self.label(ex)} "
-                       f"({self.last.nqueries} queries)")
+                       f"({self._queries(self.last.nqueries)})")
 
     def listing(self, titles=False):
         ink = self.ink

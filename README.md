@@ -85,7 +85,7 @@ budget: 2 queries            │ that repeated shape is the N+1                 
                              │                                                    │   books <- Book.author
                              │ ["Alvarez", ["Abandoned Compass II", "Bitter Har…  │   +7 more relations
                              │ ["Bianchi", ["Abandoned Harvest", "Bitter Cabin …  │
-                             │ 20 rows in all - :v to view it all                 │ Book
+                             │ 20 rows in all - :v rows to see them                 │ Book
   try again, :hint, or :s for the solution                                        │   title genre price
 ```
 
@@ -124,7 +124,7 @@ you returned 15 row(s), the reference has 20
   ["Broken Compass", "Fischer"]
   ["Alvarez", "Bitter Meridian"]
   ... 2 more
-:v for your rows, :v ref for the reference, :diff for both
+:v rows for yours, :v ref for the reference, :diff for both
 ```
 
 Dict answers are compared key by key (`missing key(s): total_price`), scalars head to head
@@ -132,7 +132,7 @@ Dict answers are compared key by key (`missing key(s): total_price`), scalars he
 row(s), you returned a number`).
 
 Everything in that column wraps rather than being cut off — rows, error messages, the SQL. A row
-that would take more than three lines is the exception: it is trimmed with `...`. `:v` opens the
+that would take more than three lines is the exception: it is trimmed with `...`. `:v rows` opens the
 whole answer in a full-screen pager (`q` leaves it), `:v ref` does the same for the reference
 answer, `:v sql` for every query the attempt ran, and `:v err` for the full traceback.
 
@@ -227,8 +227,9 @@ bar (`--no-keys` starts without it).
 :ml :multi     start a multi-statement snippet (blank line runs it)
 :s :solution   reference solution + the lesson behind it
 :hint          one hint at a time
-:v :view       full-screen preview of your answer, q to leave
+:v rows        your answer in a full-screen pager, q to leave
                :v ref  the reference answer    :v sql  every query it ran
+               :v err  the traceback of what your code raised
 :sql           the SQL your last attempt ran, inline (repeats collapsed)
 :diff          reference answer vs yours
 :n :p :g N     next / previous / jump to N
