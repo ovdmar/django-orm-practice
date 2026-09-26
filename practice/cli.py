@@ -28,9 +28,18 @@ COMMANDS = """
   :d :data       row counts in the database
   :m :models     the whole schema      :sc :schema  toggle the schema reminder
   :lay :layout   cycle the column layout (auto / 3 / 2 / stack)
+  :k :keys       show/hide the shortcut bar above each exercise
   :stats         your progress            :reset        wipe saved progress
   :q :quit       leave (progress is saved after every attempt)
 """
+
+
+KEYS = [
+    (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view all (q exits)"),
+    (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"),
+    (":l", "list"), (":m", "models"), (":sc", "schema"), (":lay", "layout"),
+    (":ml", "multi-line (blank line runs)"), (":stats", ""), (":q", "quit"),
+]
 
 
 class Ink:
@@ -62,6 +71,7 @@ class Session:
         self.told_multiline = False
         self.show_schema = self.data.get("schema", True)
         self.layout = self.data.get("layout", "auto")
+        self.show_keys = self.data.get("keys", True)
 
     # -- reference answers ------------------------------------------------- #
     def reference(self, ex):
@@ -88,6 +98,22 @@ class Session:
         if sch and lay in ("auto", "3", "2"):
             return [("result", w - 41), ("schema", 38)], w
         return [("result", w - 3)], w
+
+    def _keybar(self, width):
+        """Pack the shortcut list into lines without ever splitting an item."""
+        width = max(40, width)
+        lines, current = [], ""
+        for key, label in KEYS:
+            item = f"{key} {label}".strip()
+            candidate = f"{current}   {item}" if current else item
+            if len(candidate) > width:
+                lines.append(current)
+                current = item
+            else:
+                current = candidate
+        if current:
+            lines.append(current)
+        return lines
 
     @staticmethod
     def _clip(text, width):
@@ -184,6 +210,9 @@ class Session:
             else min(width - 1, 78)
 
         print()
+        if self.show_keys:
+            for line in self._keybar(max(rule, 60)):
+                print(ink.dim(line))
         print(ink.blue("─" * rule))
         print(ink.bold(f"{ex.number}/{len(EXERCISES)}  {ex.title}") +
               ink.dim(f"   [{ex.section}]") + badge)
@@ -350,7 +379,6 @@ class Session:
         print(ink.bold("django ORM practice") +
               ink.dim(f"   {len(EXERCISES)} exercises, in-memory sqlite, "
                       f"all models pre-imported"))
-        print(ink.dim("  :h for commands, :q to quit"))
         current = get(self.number) or EXERCISES[0]
         self.hint_at = 0
         self.show(current)
@@ -483,6 +511,12 @@ class Session:
             self.sql()
         elif cmd in ("v", "view"):
             self.view(ex, arg)
+        elif cmd in ("keys", "k"):
+            self.show_keys = not self.show_keys
+            self.data["keys"] = self.show_keys
+            progress.save(self.data)
+            print(f"  shortcut bar {'on' if self.show_keys else 'off'}")
+            self.paint(ex, self.last_grade)
         elif cmd in ("lay", "layout"):
             order = ["auto", "3", "2", "stack"]
             self.layout = order[(order.index(self.layout) + 1) % len(order)] \

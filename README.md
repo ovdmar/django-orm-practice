@@ -41,9 +41,12 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
 
 ## What a turn looks like
 
-A task is posed with the schema beside it:
+The shortcut bar sits above every screen, so nothing has to be memorised. A task is posed
+with the schema beside it:
 
 ```
+:h help   :s solution   :hint   :v view all (q exits)   :diff   :sql   :n next   :p prev   :g N goto
+:l list   :m models   :sc schema   :lay layout   :ml multi-line (blank line runs)   :stats   :q quit
 ────────────────────────────────────────────────────────────────────────────────────
 54/86  Reverse FK   [prefetch_related]
 ────────────────────────────────────────────────────────────────────────────────────
@@ -107,6 +110,9 @@ Each submission gets a fresh namespace and is rolled back, so an answer that nee
 statements has to arrive as one snippet.
 
 ### Commands
+
+The bar above each exercise lists these; `:h` prints them with descriptions and `:k` hides the
+bar (`--no-keys` starts without it).
 
 ```
 :ml :multi     start a multi-statement snippet (blank line runs it)
