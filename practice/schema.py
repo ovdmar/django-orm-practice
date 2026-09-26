@@ -19,7 +19,7 @@ def _relations(model):
         if not f.is_relation:
             continue
         if type(f).__name__ == "GenericForeignKey":
-            out[f.name] = (None, "-> any model (content_type + object_id)")
+            out[f.name] = (None, "-> any model")
             continue
         if f.related_model is None:
             continue
@@ -40,22 +40,55 @@ def _relations(model):
     return out
 
 
-def describe(model, width=40, keep=None, mark_more=True):
+def _attnames(model):
+    """{relation name: column name} where they differ - author -> author_id."""
+    return {f.name: f.attname for f in model._meta.get_fields()
+            if f.is_relation and f.concrete and getattr(f, "attname", f.name) != f.name}
+
+
+def _scalars(model):
+    """Every non-relation field, the primary key included, with its choices."""
+    out = []
+    for f in model._meta.get_fields():
+        if f.is_relation:
+            continue
+        name = f"{f.name}(pk)" if getattr(f, "primary_key", False) else f.name
+        choices = getattr(f, "choices", None)
+        if choices:
+            values = "|".join(str(value) for value, _label in choices)
+            if len(values) <= 28:
+                name = f"{name}[{values}]"
+        out.append(name)
+    return out
+
+
+def _rel_label(name, attname, arrow, tokens, width=None):
+    """Show the _id column alongside the accessor when the exercise uses it.
+
+    If both names will not fit the panel, keep the one the exercise used.
+    """
+    if not (attname and attname in tokens):
+        return f"{name} {arrow}"
+    both = f"{name}/{attname} {arrow}"
+    if width is None or len(both) + 2 <= width:
+        return both
+    return f"{attname} {arrow}"
+
+
+def describe(model, width=40, keep=None, mark_more=True, tokens=()):
     """['Author', '  firstname lastname ...', '  books <- Book.author', ...].
 
     `keep` limits which relations are listed (None = all of them).
     """
-    plain = [f.name for f in model._meta.get_fields()
-             if not f.is_relation and f.name != "id"]
+    plain = _scalars(model)
     lines = [model.__name__]
     if plain:
         lines += textwrap.wrap(" ".join(plain), width - 2,
                                initial_indent="  ", subsequent_indent="  ")
-    rels = _relations(model)
-    hidden = 0
+    rels, attnames, hidden = _relations(model), _attnames(model), 0
     for name, (_, arrow) in rels.items():
         if keep is None or name in keep:
-            lines.append(f"  {name} {arrow}")
+            lines.append("  " + _rel_label(name, attnames.get(name), arrow, tokens, width))
         else:
             hidden += 1
     if hidden and mark_more:
@@ -70,6 +103,11 @@ def relevant(exercise, consume_src=None, limit=4):
     text = " ".join(filter(None, [exercise.solution, consume_src or "", exercise.prompt]))
     tokens = set(re.split(r"[^A-Za-z_]+", text.replace("__", " ")))
 
+    def mentioned(model, accessor):
+        """Either the accessor (author) or its column (author_id) appears."""
+        attname = _attnames(model).get(accessor)
+        return accessor in tokens or (attname is not None and attname in tokens)
+
     picked = []
     for name in re.findall(r"\b[A-Z][A-Za-z]*\b", text):   # models named outright
         model = models_by_alias.get(name)
@@ -78,7 +116,7 @@ def relevant(exercise, consume_src=None, limit=4):
     for _ in range(2):                                      # then what they relate to
         for model in list(picked):
             for accessor, (target, _arrow) in _relations(model).items():
-                if (accessor in tokens and target is not None
+                if (mentioned(model, accessor) and target is not None
                         and target not in picked and len(picked) < limit):
                     picked.append(target)
     picked = picked[:limit] or [models["Book"]]
@@ -88,16 +126,16 @@ def relevant(exercise, consume_src=None, limit=4):
     for model in picked:
         keep[model] = {
             name for name, (target, _a) in _relations(model).items()
-            if name in tokens or (target in picked and target is not model)
+            if mentioned(model, name) or (target in picked and target is not model)
         }
-    return picked, keep
+    return picked, keep, tokens
 
 
 def panel(exercise, consume_src=None, width=40, limit=4, max_lines=28):
-    picked, keep = relevant(exercise, consume_src, limit)
+    picked, keep, tokens = relevant(exercise, consume_src, limit)
     out = []
     for model in picked:
-        block = describe(model, width, keep[model])
+        block = describe(model, width, keep[model], tokens=tokens)
         if out and len(out) + len(block) + 1 > max_lines:
             out.append(f"  (+{len(picked) - picked.index(model)} more model(s), :m)")
             break
@@ -118,13 +156,13 @@ def full(width=78):
 
 def compact(exercise, consume_src=None, width=76, limit=4):
     """One wrapped line per model - for terminals too narrow for a sidebar."""
-    picked, keep = relevant(exercise, consume_src, limit)
+    picked, keep, tokens = relevant(exercise, consume_src, limit)
     out = []
     for model in picked:
-        fields = [f.name for f in model._meta.get_fields()
-                  if not f.is_relation and f.name != "id"]
-        all_rels = _relations(model)
-        rels = [f"{n} {a}" for n, (_t, a) in all_rels.items() if n in keep[model]]
+        fields = _scalars(model)
+        all_rels, attnames = _relations(model), _attnames(model)
+        rels = [_rel_label(n, attnames.get(n), a, tokens)
+                for n, (_t, a) in all_rels.items() if n in keep[model]]  # compact mode wraps
         hidden = len(all_rels) - len(rels)
         if hidden:
             rels.append(f"+{hidden} more")
