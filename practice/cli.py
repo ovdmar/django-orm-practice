@@ -2,6 +2,7 @@
 
 import atexit
 import os
+import re
 import readline
 import shutil
 import textwrap
@@ -258,11 +259,36 @@ class Session:
                 print(ink.dim("    " + line))
         if grade is None and ex.hints:
             print(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
+        if grade is not None and (grade.optimal or grade.better):
+            self.compare(ex, grade)
         if grade is not None and ex.notes and (grade.optimal or grade.better):
             print()
             print(ink.dim("  " + ex.notes.replace("\n", "\n  ")))
         if grade is not None and not (grade.optimal or grade.better):
             print(ink.dim("  try again, :hint, or :s for the solution"))
+
+    @staticmethod
+    def _same_code(a, b):
+        strip = lambda t: re.sub(r"\s+", "", t).replace('"', "'")  # noqa: E731
+        return strip(a) == strip(b)
+
+    def compare(self, ex, grade):
+        """Once it passes, put your answer next to the reference one."""
+        ink = self.ink
+        mine, ref = grade.attempt.code.strip(), ex.solution.strip()
+        print()
+        if self._same_code(mine, ref):
+            print(ink.dim("  that is the reference solution (bar quoting and whitespace)"))
+            return
+        print(ink.dim("  reference solution") +
+              ink.dim(f", {grade.target} quer{'y' if grade.target == 1 else 'ies'}:"))
+        for line in ref.split("\n"):
+            print(ink.green("    " + line))
+        print(ink.dim(f"  yours, {grade.nqueries} quer"
+                      f"{'y' if grade.nqueries == 1 else 'ies'}"
+                      f"{' - fewer!' if grade.better else ''}:"))
+        for line in mine.split("\n"):
+            print("    " + line)
 
     def solution(self, ex):
         ink, ref = self.ink, self.reference(ex)

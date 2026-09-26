@@ -82,6 +82,24 @@ budget: 2 queries            │ that repeated shape is the N+1                 
   try again, :hint, or :s for the solution                                        │   title genre price
 ```
 
+Once an answer is correct **and** within budget, the reference solution is printed next to
+yours so you can compare wording:
+
+```
+  ✓ correct, 2 queries - optimal
+
+  reference solution, 2 queries:
+    Author.objects.filter(pk__lte=20).prefetch_related('books')
+  yours, 2 queries:
+    Author.objects.filter(pk__lte=20).prefetch_related(Prefetch("books", queryset=Book.objects.all()))
+
+  select_related cannot do this: a reverse FK is multi-valued, so it needs its own query.
+```
+
+(If the two match bar quoting and whitespace it just says so. This does not count as revealing
+the solution — you had already solved it. A *correct but over budget* answer deliberately does
+not print it, since the query count is still the open question; `:s` if you want it anyway.)
+
 Rows are clipped to the column; `:v` opens the whole answer in a full-screen pager (`q`
 leaves it), `:v ref` does the same for the reference answer and `:v sql` for every query the
 attempt ran.
