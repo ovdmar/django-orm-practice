@@ -7,7 +7,7 @@ import shutil
 import textwrap
 import sys
 
-from practice import engine, progress, schema
+from practice import engine, pager, progress, schema
 from practice.exercises import EXERCISES, SECTIONS, get
 
 HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".history")
@@ -21,10 +21,13 @@ COMMANDS = """
   :hint          one hint at a time
   :n :next       next exercise            :p :prev      previous exercise
   :g N :goto N   jump to exercise N       :l :list      list all exercises
+  :v :view       full-screen preview of your answer (q to leave)
+                 :v ref  the reference answer      :v sql  every query it ran
   :sql           the SQL your last attempt actually ran
   :diff          reference answer vs yours, for the last attempt
   :d :data       row counts in the database
   :m :models     the whole schema      :sc :schema  toggle the schema reminder
+  :lay :layout   cycle the column layout (auto / 3 / 2 / stack)
   :stats         your progress            :reset        wipe saved progress
   :q :quit       leave (progress is saved after every attempt)
 """
@@ -58,6 +61,7 @@ class Session:
         self.pending = None     # a line typed at the "next exercise" prompt
         self.told_multiline = False
         self.show_schema = self.data.get("schema", True)
+        self.layout = self.data.get("layout", "auto")
 
     # -- reference answers ------------------------------------------------- #
     def reference(self, ex):
@@ -69,23 +73,114 @@ class Session:
         return self.refs[ex.slug]
 
     # -- rendering --------------------------------------------------------- #
+    # -- layout ------------------------------------------------------------ #
+    def _plan(self, has_result):
+        """Which columns fit, and how wide. None means stack everything."""
+        w = shutil.get_terminal_size((80, 24)).columns
+        lay, sch = self.layout, self.show_schema
+        if lay == "stack" or w < 96:
+            return None, w
+        if not has_result:
+            return ([("task", min(62, w - 44)), ("schema", 38)] if sch else None), w
+        if sch and w >= 104 and (lay == "3" or (lay == "auto" and w >= 130)):
+            task_w = 34 if w >= 130 else 28
+            return [("task", task_w), ("result", w - task_w - 38 - 7), ("schema", 38)], w
+        if sch and lay in ("auto", "3", "2"):
+            return [("result", w - 41), ("schema", 38)], w
+        return [("result", w - 3)], w
+
+    @staticmethod
+    def _clip(text, width):
+        text = text.rstrip()
+        return text if len(text) <= width else text[: width - 1] + "…"
+
+    def _grid(self, cells, plan):
+        """cells: {column name: [(text, style), ...]} clipped into place."""
+        ink = self.ink
+        height = max((len(cells.get(name, [])) for name, _w in plan), default=0)
+        for i in range(height):
+            parts = []
+            for name, w in plan:
+                text, style = (cells.get(name, []) + [("", None)] * height)[i]
+                text = self._clip(text, w)
+                parts.append((style(text) if style else text) + " " * (w - len(text)))
+            print(ink.dim(" │ ").join(parts).rstrip())
+
+    # -- cell contents ----------------------------------------------------- #
+    def _task_cell(self, ex, ref, width):
+        out = []
+        for para in ex.prompt.split("\n"):
+            out += [(l, None) for l in textwrap.wrap(para, width) or [""]]
+        budget = f"budget: {ref.nqueries} quer{'y' if ref.nqueries == 1 else 'ies'}"
+        out += [("", None), (budget, self.ink.yellow)]
+        if ex.mutates:
+            out.append(("(writes are rolled back)", self.ink.dim))
+        return out
+
+    def _result_cell(self, ex, grade, width, max_rows=14):
+        ink, att = self.ink, grade.attempt
+        out = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:4]]
+        plural = "query" if grade.nqueries == 1 else "queries"
+        if att.shape_error:
+            out += [("✗ the grader cannot read what you returned", ink.red),
+                    (f"you returned {att.raw}", ink.dim),
+                    (att.error.split("\n")[-1], None)]
+            return out
+        if att.error:
+            out.append(("✗ your code raised", ink.red))
+            out += [(l.strip(), None) for l in att.error.split("\n")[-4:]]
+            return out
+        if grade.better:
+            out.append((f"✓ correct in {grade.nqueries} {plural} - beats the "
+                        f"reference ({grade.target})!", ink.green))
+        elif grade.optimal:
+            out.append((f"✓ correct, {grade.nqueries} {plural} - optimal", ink.green))
+        elif grade.ok:
+            out.append((f"~ correct, but {grade.nqueries} {plural} "
+                        f"instead of {grade.target}", ink.yellow))
+        else:
+            out.append((f"✗ wrong answer ({grade.nqueries} {plural})", ink.red))
+        if grade.ok and not grade.optimal:
+            for n, shape in att.repeated_shapes()[:1]:
+                out.append((f"{n}x {shape}", ink.dim))
+            out.append(("that repeated shape is the N+1", ink.dim))
+        rows, total = engine.render_rows(att.value, width, max_rows)
+        out.append(("", None))
+        out += [(r, None) for r in rows]
+        tail = []
+        if total > len(rows):
+            tail.append(f"{total} rows in all")
+        if not grade.ok:
+            ref = self.reference(ex)
+            if isinstance(ref.value, list) and isinstance(att.value, list):
+                tail.append(f"reference has {len(ref.value)}")
+        if total > len(rows) or not grade.ok:
+            tail.append(":v to view, :diff to compare" if not grade.ok else ":v to view it all")
+        if tail:
+            out.append((" - ".join(tail), ink.dim))
+        return out
+
+    def _schema_cell(self, ex, contract, width, max_lines=24):
+        out = []
+        for line in schema.panel(ex, contract, width=width, max_lines=max_lines):
+            out.append((line, self.ink.bold if line and not line.startswith(" ") else self.ink.dim))
+        return out
+
+    # -- the exercise screen ----------------------------------------------- #
     def show(self, ex):
+        self.paint(ex, None)
+
+    def paint(self, ex, grade):
         ink, ref = self.ink, self.reference(ex)
+        contract = engine.source_of(ex.consume)
+        plan, width = self._plan(grade is not None)
         done = self.data["exercises"].get(ex.slug, {})
         badge = ""
-        if done.get("solved"):
+        if done.get("solved") and grade is None:
             best, target = done.get("best_queries"), done.get("target")
-            mark = "solved" if best is not None and target is not None and best <= target else "solved (slow)"
-            badge = ink.dim(f"  [{mark}, best {best}q]")
-        width = shutil.get_terminal_size((80, 24)).columns
-        contract = engine.source_of(ex.consume)
-        budget = f"budget: {ref.nqueries} quer{'y' if ref.nqueries == 1 else 'ies'}"
-        if ex.mutates:
-            budget += "   (writes are rolled back after every attempt)"
-        sidebar = schema.panel(ex, contract, width=38) if self.show_schema else []
-        beside = bool(sidebar) and width >= 96
-        left_w = min(62, width - 44) if beside else 0
-        rule = min(width - 1, left_w + 2 + max(len(r) for r in sidebar)) if beside \
+            ok = best is not None and target is not None and best <= target
+            badge = ink.dim(f"  [{'solved' if ok else 'solved (slow)'}, best {best}q]")
+        rule = min(width - 1, sum(w for _n, w in plan) + 3 * (len(plan) - 1)) if plan \
             else min(width - 1, 78)
 
         print()
@@ -94,85 +189,51 @@ class Session:
               ink.dim(f"   [{ex.section}]") + badge)
         print(ink.blue("─" * rule))
 
-        if beside:
-            left = []
-            for para in ex.prompt.split("\n"):
-                left += textwrap.wrap(para, left_w - 2, initial_indent="  ",
-                                      subsequent_indent="  ") or [""]
-            left += ["", "  " + budget]
-            self._columns(left, sidebar, left_w)
+        if plan:
+            names = [n for n, _w in plan]
+            cells = {}
+            for name, w in plan:
+                if name == "task":
+                    cells[name] = self._task_cell(ex, ref, w)
+                elif name == "schema":
+                    cells[name] = self._schema_cell(ex, contract, w)
+                else:
+                    cells[name] = self._result_cell(ex, grade, w)
+            self._grid(cells, plan)
+            if grade is not None and "task" not in names:
+                pass          # the task is a few lines up in the scrollback
         else:
-            if self.show_schema:
+            if self.show_schema and grade is None:
                 for line in schema.compact(ex, contract, width=min(width, 96) - 4):
                     print(ink.dim("  " + line))
                 print()
-            for para in ex.prompt.split("\n"):
-                for line in textwrap.wrap(para, min(width, 98) - 2, initial_indent="  ",
-                                          subsequent_indent="  ") or [""]:
-                    print(line)
-            print()
-            print(ink.yellow("  " + budget))
-        if contract:
+            if grade is None:
+                for para in ex.prompt.split("\n"):
+                    for line in textwrap.wrap(para, min(width, 98) - 2, initial_indent="  ",
+                                              subsequent_indent="  ") or [""]:
+                        print(line)
+                print()
+                print(ink.yellow(f"  budget: {ref.nqueries} "
+                                 f"quer{'y' if ref.nqueries == 1 else 'ies'}" +
+                                 ("   (writes are rolled back)" if ex.mutates else "")))
+            else:
+                cell_w = min(width, 112) - 3
+                for text, style in self._result_cell(ex, grade, cell_w, max_rows=10):
+                    line = ("  " + self._clip(text, cell_w)).rstrip()
+                    print(style(line) if style else line)
+
+        if contract and (grade is None or grade.attempt.shape_error):
             print()
             print(ink.dim("  the grader consumes your result like this:"))
             for line in contract.split("\n"):
                 print(ink.dim("    " + line))
-        if ex.hints:
+        if grade is None and ex.hints:
             print(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
-
-    def _columns(self, left, right, left_w):
-        """Print the task on the left, the schema reminder on the right."""
-        ink = self.ink
-        for i in range(max(len(left), len(right))):
-            cell = left[i] if i < len(left) else ""
-            text = ink.yellow(cell) if cell.strip().startswith("budget:") else cell
-            pad = " " * max(0, left_w - len(cell))
-            line = text + pad + ink.dim("│ ")
-            if i < len(right):
-                r = right[i]
-                line += ink.bold(r) if r and not r.startswith(" ") else ink.dim(r)
-            print(line.rstrip())
-
-    def verdict(self, ex, grade):
-        ink = self.ink
-        att = grade.attempt
-        if att.error and att.shape_error:
-            print(ink.red("  ✗ the grader cannot read what you returned") +
-                  ink.dim(f"   (you returned {att.raw})"))
-            print("    " + att.error.split("\n")[-1])
-            contract = engine.source_of(ex.consume)
-            if contract:
-                print(ink.dim("    it needs to work with:  ") + contract)
-            return
-        if att.error:
-            print(ink.red("  ✗ your code raised"))
-            for line in att.error.split("\n"):
-                print("    " + line)
-            return
-        plural = "query" if grade.nqueries == 1 else "queries"
-        if not grade.ok:
-            print(ink.red(f"  ✗ wrong answer") + ink.dim(f"   ({grade.nqueries} {plural})"))
-            print(ink.dim("    you returned: ") + engine.preview(att.value))
-            ref = self.reference(ex)
-            if isinstance(att.value, list) and isinstance(ref.value, list) and \
-                    len(att.value) != len(ref.value):
-                print(ink.dim(f"    {len(att.value)} items, the reference answer has {len(ref.value)}"))
-            print(ink.dim("    :diff to compare with the reference answer, :hint, :s for the solution"))
-            return
-        if grade.better:
-            print(ink.green(f"  ✓ correct in {grade.nqueries} {plural}") +
-                  ink.bold(f" - better than the reference ({grade.target})! "))
-        elif grade.optimal:
-            print(ink.green(f"  ✓ correct, {grade.nqueries} {plural} - optimal"))
-        else:
-            print(ink.yellow(f"  ~ correct, but {grade.nqueries} {plural} instead of {grade.target}"))
-            for n, shape in att.repeated_shapes()[:2]:
-                print(ink.dim(f"    {n}x  ") + engine._trim(shape, 90))
-            if att.repeated_shapes():
-                print(ink.dim("    that repeated shape is the N+1 - fetch it up front instead"))
-            print(ink.dim("    try again, or :s for the reference solution"))
-        if ex.notes and (grade.optimal or grade.better):
-            print(ink.dim("    " + ex.notes.replace("\n", "\n    ")))
+        if grade is not None and ex.notes and (grade.optimal or grade.better):
+            print()
+            print(ink.dim("  " + ex.notes.replace("\n", "\n  ")))
+        if grade is not None and not (grade.optimal or grade.better):
+            print(ink.dim("  try again, :hint, or :s for the solution"))
 
     def solution(self, ex):
         ink, ref = self.ink, self.reference(ex)
@@ -193,6 +254,28 @@ class Session:
         if self.last is not None:
             print(ink.dim("  your last attempt:"))
             print("    " + engine.preview(self.last.value, limit=8))
+
+    def view(self, ex, what=None):
+        """Full-screen preview of a long answer - the pager exits on q."""
+        what = (what or "mine").lower()
+        if what in ("ref", "reference", "solution"):
+            ref = self.reference(ex)
+            pager.page(engine.dumps(ref.value),
+                       f"reference answer - {ex.number}. {ex.title} ({ref.nqueries} queries)")
+        elif what == "sql":
+            if self.last is None:
+                print("  nothing run yet")
+                return
+            body = "\n\n".join(f"{i:>3}. [{q['time']}s] {q['sql']}"
+                                for i, q in enumerate(self.last.queries, 1))
+            pager.page(body or "no queries at all",
+                       f"{len(self.last.queries)} query/queries from your last attempt")
+        elif self.last is None or self.last.error:
+            print("  no result to view - run a query first")
+        else:
+            pager.page(engine.dumps(self.last.value),
+                       f"your last answer - {ex.number}. {ex.title} "
+                       f"({self.last.nqueries} queries)")
 
     def listing(self):
         ink = self.ink
@@ -296,7 +379,7 @@ class Session:
             grade = engine.grade(current, code, self.reference(current))
             self.last, self.last_grade = grade.attempt, grade
             progress.record_attempt(self.data, current, grade)
-            self.verdict(current, grade)
+            self.paint(current, grade)
             if grade.ok and self.only is None:
                 nxt = get(current.number + 1)
                 if nxt is None:
@@ -398,6 +481,16 @@ class Session:
             self.listing()
         elif cmd == "sql":
             self.sql()
+        elif cmd in ("v", "view"):
+            self.view(ex, arg)
+        elif cmd in ("lay", "layout"):
+            order = ["auto", "3", "2", "stack"]
+            self.layout = order[(order.index(self.layout) + 1) % len(order)] \
+                if arg is None else (arg if arg in order else self.layout)
+            self.data["layout"] = self.layout
+            progress.save(self.data)
+            print(f"  layout: {self.layout}")
+            self.paint(ex, self.last_grade)
         elif cmd == "diff":
             self.diff(ex)
         elif cmd in ("d", "data"):

@@ -41,6 +41,8 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
 
 ## What a turn looks like
 
+A task is posed with the schema beside it:
+
 ```
 ────────────────────────────────────────────────────────────────────────────────────
 54/86  Reverse FK   [prefetch_related]
@@ -53,29 +55,42 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
                                                   │
                                                   │ Book
                                                   │   title genre price published_date
-                                                  │   page_count
                                                   │   author -> Author?
                                                   │   +8 more relations
 
   the grader consumes your result like this:
     lambda qs: [(a.lastname, sorted(b.title for b in a.books.all())) for a in qs]
->>> Author.objects.filter(pk__lte=20)
-  ~ correct, but 21 queries instead of 2
-    20x  SELECT "bookstore_book"."id", "bookstore_book"."title", ...
-    that repeated shape is the N+1 - fetch it up front instead
->>> Author.objects.filter(pk__lte=20).prefetch_related("books")
-  ✓ correct, 2 queries - optimal
+>>>
 ```
 
-The **schema reminder** on the right lists only the models that exercise involves, and of
-their relations only the ones in play (`+N more relations` for the rest, `:m` for the whole
-schema). On a terminal narrower than 96 columns it collapses to one line per model above the
-task. `:sc` toggles it, `./orm --no-schema` starts with it off.
+Every attempt then repaints as three columns — task, what you ran and what came back,
+schema:
 
-The **"the grader consumes your result like this"** block is the contract: it is the actual
-code that will touch your result, so it tells you which related objects get walked — which is
-exactly what decides your query count. Return the queryset (or list of objects); don't do the
-walking yourself.
+```
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+Authors with pk <= 20, each  │ >>> Author.objects.filter(pk__lte=20)              │ Author
+with their books.            │ ~ correct, but 21 queries instead of 2             │   firstname lastname
+                             │ 20x SELECT "bookstore_book"."id", "bookstore_boo…  │   telephone joindate
+budget: 2 queries            │ that repeated shape is the N+1                     │   popularity_score
+                             │                                                    │   books <- Book.author
+                             │ ["Alvarez", ["Abandoned Compass II", "Bitter Har…  │   +7 more relations
+                             │ ["Bianchi", ["Abandoned Harvest", "Bitter Cabin …  │
+                             │ 20 rows in all - :v to view it all                 │ Book
+  try again, :hint, or :s for the solution                                        │   title genre price
+```
+
+Rows are clipped to the column; `:v` opens the whole answer in a full-screen pager (`q`
+leaves it), `:v ref` does the same for the reference answer and `:v sql` for every query the
+attempt ran.
+
+### Layout
+
+`auto` picks by terminal width: three columns from 130 columns, two (result + schema) from 96,
+and below that everything stacks with the schema as one line per model. `:lay` cycles
+`auto / 3 / 2 / stack` and remembers the choice; `./orm --layout 3` forces one from the start.
+The schema column lists only the models that exercise involves and only the relations in play
+(`+N more relations` for the rest, `:m` for the whole schema); `:sc` hides it, `--no-schema`
+starts without it.
 
 ### Typing answers
 
@@ -97,12 +112,15 @@ statements has to arrive as one snippet.
 :ml :multi     start a multi-statement snippet (blank line runs it)
 :s :solution   reference solution + the lesson behind it
 :hint          one hint at a time
-:sql           the SQL your last attempt actually ran (repeats collapsed)
+:v :view       full-screen preview of your answer, q to leave
+               :v ref  the reference answer    :v sql  every query it ran
+:sql           the SQL your last attempt ran, inline (repeats collapsed)
 :diff          reference answer vs yours
 :n :p :g N     next / previous / jump to N
 :l :list       all exercises and your progress     :stats   progress summary
 :m :models     the whole schema                    :d :data row counts
 :sc :schema    toggle the per-exercise schema reminder
+:lay :layout   cycle the column layout (auto / 3 / 2 / stack)
 :reset         wipe progress                       :q       quit
 ```
 

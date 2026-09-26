@@ -28,6 +28,8 @@ def main():
     ap.add_argument("--data", action="store_true", help="print row counts and exit")
     ap.add_argument("--no-color", action="store_true")
     ap.add_argument("--no-schema", action="store_true", help="hide the schema reminder")
+    ap.add_argument("--layout", choices=["auto", "3", "2", "stack"], default=None,
+                    help="column layout (default: auto, by terminal width)")
     args = ap.parse_args()
 
     from practice.bootstrap import build_database
@@ -62,6 +64,8 @@ def main():
     session = Session(start=start, only=args.only, color=not args.no_color)
     if args.no_schema:
         session.show_schema = False
+    if args.layout:
+        session.layout = args.layout
     if args.list:
         session.listing()
         return 0

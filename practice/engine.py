@@ -253,6 +253,25 @@ def preview(value, limit=6, width=100):
     return _trim(json.dumps(value, default=str, indent=1), width * 4)
 
 
+def render_rows(value, width, max_rows=12):
+    """(lines clipped to `width`, total row count) - one line per row of the answer."""
+    if isinstance(value, list):
+        rows = [_trim(json.dumps(v, default=str), width) for v in value[:max_rows]]
+        return (rows or ["[]  (empty!)"]), len(value)
+    if isinstance(value, dict):
+        items = list(value.items())[:max_rows]
+        return [_trim(f"{k}: {json.dumps(v, default=str)}", width) for k, v in items], len(value)
+    return [_trim(json.dumps(value, default=str), width)], 1
+
+
+def dumps(value):
+    """The whole answer, pretty-printed, for the pager."""
+    if isinstance(value, list):
+        body = "\n".join(f"{i:>4}. {json.dumps(v, default=str)}" for i, v in enumerate(value, 1))
+        return f"{len(value)} row(s)\n\n{body}\n"
+    return json.dumps(value, default=str, indent=2, sort_keys=True) + "\n"
+
+
 def _trim(text, width):
     text = " ".join(text.split())
     return text if len(text) <= width else text[: width - 1] + "…"
