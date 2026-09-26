@@ -184,6 +184,25 @@ statements has to arrive as one snippet.
 your own that is still running, without ending the session. To leave, use **ctrl+d**, `exit()`
 or `:q`.
 
+### Tab completion
+
+`tab` completes three things, working out which from the line you are typing:
+
+```
+Auth<TAB>                            Author, AuthorProfile
+Book.pub<TAB>                        Book.published_date, Book.publisher, Book.publisher_id
+Book.objects.values_list('pub<TAB>   published_date, publisher, publisher_id
+Book.objects.select_related('pub<TAB>  publisher          - only what it can join
+Author.objects.filter(books__reviews__rat<TAB>   books__reviews__rating
+Book.objects.filter(price__<TAB>     price__gte, price__icontains, price__isnull, ...
+```
+
+Field paths walk `__` hops through the relations, offer lookups once the path reaches a plain
+field, and are completed against the model named last in the line — so a nested
+`Prefetch('books', queryset=Book.objects.filter(...))` completes against `Book`, not the outer
+model. `select_related()` is offered only relations it can actually join, `prefetch_related()`
+any relation.
+
 ### Commands
 
 The bar above each exercise lists these; `:h` prints them with descriptions and `:k` hides the

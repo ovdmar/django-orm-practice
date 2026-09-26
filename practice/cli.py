@@ -9,12 +9,13 @@ import shutil
 import textwrap
 import sys
 
-from practice import engine, pager, progress, schema
+from practice import complete, engine, pager, progress, schema
 from practice.exercises import EXERCISES, SECTIONS, get
 
 HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".history")
 
 COMMANDS = """
+  tab            complete a model name, an attribute or a field path
   <query>        an expression runs as soon as you hit enter. Anything else (assignment,
                  loop, several statements) is collected like a file - dedent to close a
                  block - and a blank line runs the whole snippet as one measured unit
@@ -47,7 +48,7 @@ Frame = collections.namedtuple("Frame", "number lines")
 KEYS = [                      # in priority order: the tail is dropped if it will not fit
     (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view"), (":diff", ""),
     (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"), (":l", "list"),
-    (":m", "models"), (":ml", "multi-line"), ("alt+up/dn", "screens"), ("^c", "clear"), ("^d", "quit"),
+    (":m", "models"), ("tab", "complete"), (":ml", "multi-line"), ("alt+up/dn", "screens"), ("^c", "clear"), ("^d", "quit"),
     (":stats", ""), (":sc", "schema"), (":fs", "fullscreen"),
     (":k", "keys"),
 ]
@@ -442,6 +443,14 @@ class Session:
                     note=f"  {where}   alt+up / alt+down to move   "
                          f"the prompt belongs to Exercise #{self.current.number}")
 
+    def bind_completion(self):
+        """Tab completes model names, attributes and field paths."""
+        try:
+            readline.set_completer(complete.Completer(engine.build_namespace()))
+            readline.parse_and_bind("tab: complete")
+        except Exception:
+            pass
+
     def bind_keys(self):
         """Wire alt/ctrl + up/down to the screen history.
 
@@ -624,6 +633,7 @@ class Session:
         readline.set_history_length(2000)
         atexit.register(lambda: readline.write_history_file(HISTORY))
         self.bind_keys()
+        self.bind_completion()
 
         ink = self.ink
         print(ink.bold("django ORM practice") +
