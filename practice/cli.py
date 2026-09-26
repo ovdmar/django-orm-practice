@@ -29,7 +29,6 @@ COMMANDS = """
   :diff          reference answer vs yours, for the last attempt
   :d :data       row counts in the database
   :m :models     the whole schema      :sc :schema  toggle the schema reminder
-  :lay :layout   cycle the column layout (auto / 3 / 2 / stack)
   :k :keys       show/hide the shortcut bar above each exercise
   :fs            fullscreen on/off (off = screens scroll past each other)
   alt+up/down    step back and forth through the screens of this session
@@ -44,13 +43,12 @@ COMMANDS = """
 
 Frame = collections.namedtuple("Frame", "number lines")
 
-KEYS = [
-    (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view all (q exits)"),
-    (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"),
-    (":l", "list"), (":m", "models"), (":sc", "schema"), (":lay", "layout"),
-    (":ml", "multi-line (blank line runs)"), (":stats", ""),
-    ("alt+up/down", "past screens"), ("ctrl+c", "clear the line"),
-    (":q", "quit (ctrl+d, exit() too)"),
+KEYS = [                      # in priority order: the tail is dropped if it will not fit
+    (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view"), (":diff", ""),
+    (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"), (":l", "list"),
+    (":m", "models"), ("alt+up/dn", "screens"), ("^c", "clear"), ("^d", "quit"),
+    (":ml", "multi-line"), (":stats", ""), (":sc", "schema"), (":fs", "fullscreen"),
+    (":k", "keys"),
 ]
 
 
@@ -90,7 +88,6 @@ class Session:
         self.pending = None     # a line typed at the "next exercise" prompt
         self.told_multiline = False
         self.show_schema = self.data.get("schema", True)
-        self.layout = self.data.get("layout", "auto")
         self.show_keys = self.data.get("keys", True)
         self.fullscreen = self.data.get("fullscreen", True)
         self.frames = []          # every screen drawn this session
@@ -116,36 +113,33 @@ class Session:
 
     # -- rendering --------------------------------------------------------- #
     # -- layout ------------------------------------------------------------ #
-    def _plan(self, has_result):
-        """Which columns fit, and how wide. None means stack everything."""
-        w = shutil.get_terminal_size((80, 24)).columns
-        lay, sch = self.layout, self.show_schema
-        if lay == "stack" or w < 96:
-            return None, w
-        if not has_result:
-            return ([("task", min(62, w - 44)), ("schema", 38)] if sch else None), w
-        if sch and w >= 104 and (lay == "3" or (lay == "auto" and w >= 130)):
-            task_w = 34 if w >= 130 else 28
-            return [("task", task_w), ("result", w - task_w - 38 - 7), ("schema", 38)], w
-        if sch and lay in ("auto", "3", "2"):
-            return [("result", w - 41), ("schema", 38)], w
-        return [("result", w - 3)], w
+    def _plan(self):
+        """Always the same three columns: the task, your attempt, the schema.
+
+        Only their widths follow the terminal, so the screen never reflows under
+        you when an attempt lands.
+        """
+        width = shutil.get_terminal_size((80, 24)).columns
+        gaps = 3 * (2 if self.show_schema else 1) + 1
+        schema_w = (38 if width >= 120 else max(24, min(38, width // 3))) \
+            if self.show_schema else 0
+        left = max(30, width - schema_w - gaps)
+        task_w = max(18, min(40, left // 3))   # 18 fits "budget: 2 queries"
+        plan = [("task", task_w), ("result", left - task_w)]
+        if self.show_schema:
+            plan.append(("schema", schema_w))
+        return plan, width
 
     def _keybar(self, width):
-        """Pack the shortcut list into lines without ever splitting an item."""
-        width = max(40, width)
-        lines, current = [], ""
+        """One line of shortcuts. What does not fit is dropped - `:h` has it all."""
+        line = ""
         for key, label in KEYS:
             item = f"{key} {label}".strip()
-            candidate = f"{current}   {item}" if current else item
-            if len(candidate) > width:
-                lines.append(current)
-                current = item
-            else:
-                current = candidate
-        if current:
-            lines.append(current)
-        return lines
+            candidate = f"{line}   {item}" if line else item
+            if len(candidate) > max(40, width):
+                break
+            line = candidate
+        return [line]
 
     @staticmethod
     def _soft(text, width, indent="  ", hang=None):
@@ -218,7 +212,12 @@ class Session:
         The SQL is sized first and the rows take what is left: a row you cannot see
         is a smaller loss than the query that explains the count.
         """
-        ink, att = self.ink, grade.attempt
+        ink = self.ink
+        if grade is None:
+            return [(">>> ...", ink.dim), ("", None),
+                    ("your rows and the SQL they cost", ink.dim),
+                    ("appear here", ink.dim)]
+        att = grade.attempt
         sql = self._sql_lines(att, width, max(4, min(room - 8, 18)))
         out = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:3]]
         plural = "query" if grade.nqueries == 1 else "queries"
@@ -304,19 +303,18 @@ class Session:
         """Lay out one screen, sized so that it fits the window without scrolling."""
         ink, ref = self.ink, self.reference(ex)
         contract = engine.source_of(ex.consume)
-        plan, width = self._plan(grade is not None)
+        plan, width = self._plan()
         done = self.data["exercises"].get(ex.slug, {})
         badge = ""
         if done.get("solved") and grade is None:
             best, target = done.get("best_queries"), done.get("target")
             ok = best is not None and target is not None and best <= target
             badge = ink.dim(f"  [{'solved' if ok else 'solved (slow)'}, best {best}q]")
-        rule = min(width - 1, sum(w for _n, w in plan) + 3 * (len(plan) - 1)) if plan \
-            else min(width - 1, 78)
+        rule = min(width - 1, sum(w for _n, w in plan) + 3 * (len(plan) - 1))
 
         head = []
         if self.show_keys:
-            head += [ink.dim(line) for line in self._keybar(max(rule, 60))]
+            head += [ink.dim(line) for line in self._keybar(rule)]
         title = ink.dim(f"   {ex.title}") if self.revealed(ex) else ""
         head += [
             ink.blue("─" * rule),
@@ -346,39 +344,18 @@ class Session:
         height = shutil.get_terminal_size((80, 24)).lines
         body_room = max(6, height - 3 - len(head) - len(tail))
 
-        if plan:
-            cells = {}
-            for name, w in plan:
-                if name == "task":
-                    cell = self._task_cell(ex, ref, w)
-                elif name == "schema":
-                    cell = self._schema_cell(ex, contract, w, max_lines=body_room)
-                else:
-                    cell = self._result_cell(ex, grade, w, body_room)
-                if len(cell) > body_room:
-                    cell = cell[:body_room - 1] + [("... :v / :m for the rest", ink.dim)]
-                cells[name] = cell
-            body = self._grid(cells, plan)
-        else:
-            body = []
-            if self.show_schema and grade is None:
-                body += [ink.dim("  " + line) for line in
-                         schema.compact(ex, contract, width=min(width, 96) - 4)]
-                body.append("")
-            if grade is None:
-                for para in ex.prompt.split("\n"):
-                    body += textwrap.wrap(para, min(width, 98) - 2, initial_indent="  ",
-                                          subsequent_indent="  ") or [""]
-                body.append("")
-                body.append(ink.yellow(f"  budget: {ref.nqueries} "
-                                       f"quer{'y' if ref.nqueries == 1 else 'ies'}" +
-                                       ("   (writes are rolled back)" if ex.mutates else "")))
+        cells = {}
+        for name, w in plan:
+            if name == "task":
+                cell = self._task_cell(ex, ref, w)
+            elif name == "schema":
+                cell = self._schema_cell(ex, contract, w, max_lines=body_room)
             else:
-                cell_w = min(width, 112) - 3
-                for text, style in self._result_cell(ex, grade, cell_w, body_room):
-                    line = ("  " + self._clip(text, cell_w)).rstrip()
-                    body.append(style(line) if style else line)
-            body = body[:body_room]
+                cell = self._result_cell(ex, grade, w, body_room)
+            if len(cell) > body_room:
+                cell = cell[:body_room - 1] + [("... :v / :m for the rest", ink.dim)]
+            cells[name] = cell
+        body = self._grid(cells, plan)
         return head + body + tail
 
     # -- moving through the screens of this session ------------------------- #
@@ -752,14 +729,6 @@ class Session:
             self.data["keys"] = self.show_keys
             progress.save(self.data)
             print(f"  shortcut bar {'on' if self.show_keys else 'off'}")
-            self.paint(ex, self.last_grade)
-        elif cmd in ("lay", "layout"):
-            order = ["auto", "3", "2", "stack"]
-            self.layout = order[(order.index(self.layout) + 1) % len(order)] \
-                if arg is None else (arg if arg in order else self.layout)
-            self.data["layout"] = self.layout
-            progress.save(self.data)
-            print(f"  layout: {self.layout}")
             self.paint(ex, self.last_grade)
         elif cmd == "diff":
             self.diff(ex)

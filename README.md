@@ -41,26 +41,22 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
 
 ## What a turn looks like
 
-The shortcut bar sits above every screen, so nothing has to be memorised. A task is posed
-with the schema beside it:
+Every screen has the same three columns — the task, your attempt, the schema — with one line of
+shortcuts above it, so nothing has to be memorised and nothing moves when an attempt lands:
 
 ```
-:h help   :s solution   :hint   :v view all (q exits)   :diff   :sql   :n next   :p prev   :g N goto
-:l list   :m models   :sc schema   :lay layout   :ml multi-line (blank line runs)   :stats   :q quit
+:h help   :s solution   :hint   :v view   :diff   :sql   :n next   :p prev   :g N goto   :l list   :m models   alt+up/dn screens   ^c clear   ^d quit
 ────────────────────────────────────────────────────────────────────────────────────
 Exercise #54 of 86   [prefetch_related]
 ────────────────────────────────────────────────────────────────────────────────────
-  Authors with pk <= 20, each with their books.   │ Author
-                                                  │   id               AutoField(pk)
-  budget: 2 queries                               │   firstname        CharField(100)
-                                                  │   lastname         CharField(100)
-                                                  │   address          CharField(200)?
-                                                  │   zipcode          IntegerField?
-                                                  │   telephone        CharField(100)?
-                                                  │   joindate         DateField
-                                                  │   popularity_score IntegerField
-                                                  │   books <- Book.author
-                                                  │   +7 more relations
+  Authors with pk <= 20,   │ >>> ...                        │ Author
+  each with their books.   │                                │   id               AutoField(pk)
+                           │ your rows and the SQL they     │   firstname        CharField(100)
+  budget: 2 queries        │ cost appear here               │   lastname         CharField(100)
+                           │                                │   joindate         DateField
+                           │                                │   popularity_score IntegerField
+                           │                                │   books <- Book.author
+                           │                                │   +7 more relations
 
   the grader consumes your result like this:
     lambda qs: [(a.lastname, sorted(b.title for b in a.books.all())) for a in qs]
@@ -171,7 +167,6 @@ bar (`--no-keys` starts without it).
 :l :list       all exercises and your progress     :stats   progress summary
 :m :models     the whole schema                    :d :data row counts
 :sc :schema    toggle the per-exercise schema reminder
-:lay :layout   cycle the column layout (auto / 3 / 2 / stack)
 :reset         wipe progress                       :q       quit
 ```
 

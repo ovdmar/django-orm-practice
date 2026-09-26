@@ -31,8 +31,6 @@ def main():
     ap.add_argument("--no-keys", action="store_true", help="hide the shortcut bar")
     ap.add_argument("--no-fullscreen", action="store_true",
                     help="let screens scroll past each other instead of replacing")
-    ap.add_argument("--layout", choices=["auto", "3", "2", "stack"], default=None,
-                    help="column layout (default: auto, by terminal width)")
     args = ap.parse_args()
 
     from practice.bootstrap import build_database
@@ -67,8 +65,6 @@ def main():
     session = Session(start=start, only=args.only, color=not args.no_color)
     if args.no_schema:
         session.show_schema = False
-    if args.layout:
-        session.layout = args.layout
     if args.no_keys:
         session.show_keys = False
     if args.no_fullscreen:

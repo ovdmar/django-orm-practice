@@ -175,24 +175,3 @@ def full(width=78):
             lines.append("")
         lines += describe(model, width, mark_more=False)
     return lines
-
-
-def compact(exercise, consume_src=None, width=76, limit=4):
-    """One wrapped line per model - for terminals too narrow for a sidebar."""
-    picked, keep, tokens = relevant(exercise, consume_src, limit)
-    out = []
-    for model in picked:
-        fields = [f"{n}:{t}" + (f"[{c}]" if c else "")
-                  for n, t, c in _scalars(model, short=True)]
-        all_rels, attnames = _relations(model), _attnames(model)
-        rels = [_rel_label(n, attnames.get(n), a, tokens)
-                for n, (_t, a) in all_rels.items() if n in keep[model]]  # compact mode wraps
-        hidden = len(all_rels) - len(rels)
-        if hidden:
-            rels.append(f"+{hidden} more")
-        body = " ".join(fields)
-        if rels:
-            body += "  ·  " + ", ".join(rels)
-        out += textwrap.wrap(f"{model.__name__}: {body}", width,
-                             subsequent_indent="    ") or [model.__name__]
-    return out
