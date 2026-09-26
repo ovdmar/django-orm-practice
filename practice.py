@@ -29,6 +29,8 @@ def main():
     ap.add_argument("--no-color", action="store_true")
     ap.add_argument("--no-schema", action="store_true", help="hide the schema reminder")
     ap.add_argument("--no-keys", action="store_true", help="hide the shortcut bar")
+    ap.add_argument("--no-fullscreen", action="store_true",
+                    help="let screens scroll past each other instead of replacing")
     ap.add_argument("--layout", choices=["auto", "3", "2", "stack"], default=None,
                     help="column layout (default: auto, by terminal width)")
     args = ap.parse_args()
@@ -69,6 +71,8 @@ def main():
         session.layout = args.layout
     if args.no_keys:
         session.show_keys = False
+    if args.no_fullscreen:
+        session.fullscreen = False
     if args.list:
         session.listing()
         return 0

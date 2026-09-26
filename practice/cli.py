@@ -1,6 +1,7 @@
 """The REPL: show a task, read a query, grade it, repeat."""
 
 import atexit
+import collections
 import os
 import re
 import readline
@@ -30,16 +31,23 @@ COMMANDS = """
   :m :models     the whole schema      :sc :schema  toggle the schema reminder
   :lay :layout   cycle the column layout (auto / 3 / 2 / stack)
   :k :keys       show/hide the shortcut bar above each exercise
+  :fs            fullscreen on/off (off = screens scroll past each other)
+  alt+up/down    step back and forth through the screens of this session
+  :b :back       same as alt+up          :f :fwd       same as alt+down
+  :key           show what a key combination sends, to bind it yourself
   :stats         your progress            :reset        wipe saved progress
   :q :quit       leave (progress is saved after every attempt)
 """
 
+
+Frame = collections.namedtuple("Frame", "number lines")
 
 KEYS = [
     (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view all (q exits)"),
     (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"),
     (":l", "list"), (":m", "models"), (":sc", "schema"), (":lay", "layout"),
     (":ml", "multi-line (blank line runs)"), (":stats", ""), (":q", "quit"),
+    ("alt+up/down", "past screens"),
 ]
 
 
@@ -81,6 +89,10 @@ class Session:
         self.show_schema = self.data.get("schema", True)
         self.layout = self.data.get("layout", "auto")
         self.show_keys = self.data.get("keys", True)
+        self.fullscreen = self.data.get("fullscreen", True)
+        self.frames = []          # every screen drawn this session
+        self.frame_at = None      # None = looking at the latest one
+        self.current = None
 
     def revealed(self, ex):
         """Has the name of the technique stopped being a spoiler?"""
@@ -139,7 +151,7 @@ class Session:
 
     def _grid(self, cells, plan):
         """cells: {column name: [(text, style), ...]} clipped into place."""
-        ink = self.ink
+        ink, out = self.ink, []
         height = max((len(cells.get(name, [])) for name, _w in plan), default=0)
         for i in range(height):
             parts = []
@@ -147,7 +159,8 @@ class Session:
                 text, style = (cells.get(name, []) + [("", None)] * height)[i]
                 text = self._clip(text, w)
                 parts.append((style(text) if style else text) + " " * (w - len(text)))
-            print(ink.dim(" │ ").join(parts).rstrip())
+            out.append(ink.dim(" │ ").join(parts).rstrip())
+        return out
 
     # -- cell contents ----------------------------------------------------- #
     def _task_cell(self, ex, ref, width):
@@ -179,24 +192,29 @@ class Session:
         out.append((":v sql for the full text", dim))
         return out
 
-    def _result_budget(self):
-        """(rows, sql shapes) that still leave the screen readable."""
-        lines = shutil.get_terminal_size((80, 24)).lines
-        return min(14, max(4, lines - 24)), min(5, max(2, (lines - 18) // 4))
+    def _result_cell(self, ex, grade, width, room=24):
+        """Your query, the verdict, the rows, and the SQL - inside `room` lines.
 
-    def _result_cell(self, ex, grade, width, max_rows=14, max_sql=4):
+        The SQL is sized first and the rows take what is left: a row you cannot see
+        is a smaller loss than the query that explains the count.
+        """
         ink, att = self.ink, grade.attempt
-        out = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:4]]
+        max_sql = 2 if room < 16 else min(5, max(3, room // 6))
+        sql = self._sql_lines(att, width, max_sql)
+        out = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:3]]
         plural = "query" if grade.nqueries == 1 else "queries"
+
         if att.shape_error:
             out += [("✗ the grader cannot read what you returned", ink.red),
                     (f"you returned {att.raw}", ink.dim),
                     (att.error.split("\n")[-1], None)]
-            return out + self._sql_lines(att, width, max_sql)
+            return out + sql
         if att.error:
             out.append(("✗ your code raised", ink.red))
-            out += [(l.strip(), None) for l in att.error.split("\n")[-4:]]
-            return out + self._sql_lines(att, width, max_sql)
+            keep = max(1, room - len(out) - len(sql) - 1)
+            out += [(line.strip(), None) for line in att.error.split("\n")[-keep:]]
+            return out + sql
+
         if grade.better:
             out.append((f"✓ correct in {grade.nqueries} {plural} - beats the "
                         f"reference ({grade.target})!", ink.green))
@@ -209,21 +227,23 @@ class Session:
             out.append((f"✗ wrong answer ({grade.nqueries} {plural})", ink.red))
         if grade.ok and not grade.optimal and att.repeated_shapes():
             out.append(("the repeated query below is the N+1", ink.dim))
-        rows, total = engine.render_rows(att.value, width, max_rows)
+
+        for_rows = max(2, room - len(out) - len(sql) - 2)
+        rows, total = engine.render_rows(att.value, width, for_rows)
         out.append(("", None))
-        out += [(r, None) for r in rows]
+        out += [(row, None) for row in rows]
         tail = []
         if total > len(rows):
             tail.append(f"{total} rows in all")
         if not grade.ok:
-            ref = self.reference(ex)
-            if isinstance(ref.value, list) and isinstance(att.value, list):
-                tail.append(f"reference has {len(ref.value)}")
+            reference = self.reference(ex)
+            if isinstance(reference.value, list) and isinstance(att.value, list):
+                tail.append(f"reference has {len(reference.value)}")
         if total > len(rows) or not grade.ok:
             tail.append(":v to view, :diff to compare" if not grade.ok else ":v to view it all")
         if tail:
             out.append((" - ".join(tail), ink.dim))
-        return out + self._sql_lines(att, width, max_sql)
+        return out + sql
 
     def _schema_cell(self, ex, contract, width, max_lines=None):
         """Field definitions, capped so the whole screen still fits the window."""
@@ -239,6 +259,30 @@ class Session:
         self.paint(ex, None)
 
     def paint(self, ex, grade):
+        """Build this screen, keep it for later, draw it."""
+        lines = self.build_frame(ex, grade)
+        self.frames.append(Frame(ex.number, lines))
+        self.frame_at = None
+        self.render(lines)
+
+    def render(self, lines, note=None):
+        """Draw a screen. In fullscreen mode it replaces what is on display."""
+        ink = self.ink
+        height = shutil.get_terminal_size((80, 24)).lines
+        room = max(8, height - (4 if note else 3))
+        if self.fullscreen:
+            sys.stdout.write("\033[H\033[2J")
+        for line in lines[:room]:
+            print(line)
+        hidden = len(lines) - len(lines[:room])
+        if hidden:
+            print(ink.dim(f"  ... {hidden} line(s) did not fit - :v for the answer, "
+                          f":m for the schema"))
+        if note:
+            print(ink.dim(note))
+
+    def build_frame(self, ex, grade):
+        """Lay out one screen, sized so that it fits the window without scrolling."""
         ink, ref = self.ink, self.reference(ex)
         contract = engine.source_of(ex.consume)
         plan, width = self._plan(grade is not None)
@@ -251,64 +295,135 @@ class Session:
         rule = min(width - 1, sum(w for _n, w in plan) + 3 * (len(plan) - 1)) if plan \
             else min(width - 1, 78)
 
-        print()
+        head = []
         if self.show_keys:
-            for line in self._keybar(max(rule, 60)):
-                print(ink.dim(line))
-        print(ink.blue("─" * rule))
+            head += [ink.dim(line) for line in self._keybar(max(rule, 60))]
         title = ink.dim(f"   {ex.title}") if self.revealed(ex) else ""
-        print(ink.bold(f"Exercise #{ex.number}") +
-              ink.dim(f" of {len(EXERCISES)}   [{ex.section}]") + title + badge)
-        print(ink.blue("─" * rule))
+        head += [
+            ink.blue("─" * rule),
+            ink.bold(f"Exercise #{ex.number}") +
+            ink.dim(f" of {len(EXERCISES)}   [{ex.section}]") + title + badge,
+            ink.blue("─" * rule),
+        ]
+
+        # everything below the columns, built first so its height is known
+        tail = []
+        if contract and (grade is None or grade.attempt.shape_error):
+            tail.append("")
+            tail.append(ink.dim("  the grader consumes your result like this:"))
+            tail += [ink.dim("    " + line) for line in contract.split("\n")]
+        if grade is None and ex.hints:
+            tail.append(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
+        if grade is not None and (grade.optimal or grade.better):
+            tail += self.compare(ex, grade)
+            if ex.notes:
+                tail.append("")
+                tail += [ink.dim("  " + line) for line in ex.notes.split("\n")]
+        if grade is not None and not (grade.optimal or grade.better):
+            tail.append(ink.dim("  try again, :hint, or :s for the solution"))
+
+        height = shutil.get_terminal_size((80, 24)).lines
+        body_room = max(6, height - 3 - len(head) - len(tail))
 
         if plan:
-            names = [n for n, _w in plan]
             cells = {}
             for name, w in plan:
                 if name == "task":
-                    cells[name] = self._task_cell(ex, ref, w)
+                    cell = self._task_cell(ex, ref, w)
                 elif name == "schema":
-                    cells[name] = self._schema_cell(ex, contract, w)
+                    cell = self._schema_cell(ex, contract, w, max_lines=body_room)
                 else:
-                    cells[name] = self._result_cell(ex, grade, w, *self._result_budget())
-            self._grid(cells, plan)
-            if grade is not None and "task" not in names:
-                pass          # the task is a few lines up in the scrollback
+                    cell = self._result_cell(ex, grade, w, body_room)
+                if len(cell) > body_room:
+                    cell = cell[:body_room - 1] + [("... :v / :m for the rest", ink.dim)]
+                cells[name] = cell
+            body = self._grid(cells, plan)
         else:
+            body = []
             if self.show_schema and grade is None:
-                for line in schema.compact(ex, contract, width=min(width, 96) - 4):
-                    print(ink.dim("  " + line))
-                print()
+                body += [ink.dim("  " + line) for line in
+                         schema.compact(ex, contract, width=min(width, 96) - 4)]
+                body.append("")
             if grade is None:
                 for para in ex.prompt.split("\n"):
-                    for line in textwrap.wrap(para, min(width, 98) - 2, initial_indent="  ",
-                                              subsequent_indent="  ") or [""]:
-                        print(line)
-                print()
-                print(ink.yellow(f"  budget: {ref.nqueries} "
-                                 f"quer{'y' if ref.nqueries == 1 else 'ies'}" +
-                                 ("   (writes are rolled back)" if ex.mutates else "")))
+                    body += textwrap.wrap(para, min(width, 98) - 2, initial_indent="  ",
+                                          subsequent_indent="  ") or [""]
+                body.append("")
+                body.append(ink.yellow(f"  budget: {ref.nqueries} "
+                                       f"quer{'y' if ref.nqueries == 1 else 'ies'}" +
+                                       ("   (writes are rolled back)" if ex.mutates else "")))
             else:
                 cell_w = min(width, 112) - 3
-                rows, sqls = self._result_budget()
-                for text, style in self._result_cell(ex, grade, cell_w, rows, sqls):
+                for text, style in self._result_cell(ex, grade, cell_w, body_room):
                     line = ("  " + self._clip(text, cell_w)).rstrip()
-                    print(style(line) if style else line)
+                    body.append(style(line) if style else line)
+            body = body[:body_room]
+        return head + body + tail
 
-        if contract and (grade is None or grade.attempt.shape_error):
-            print()
-            print(ink.dim("  the grader consumes your result like this:"))
-            for line in contract.split("\n"):
-                print(ink.dim("    " + line))
-        if grade is None and ex.hints:
-            print(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
-        if grade is not None and (grade.optimal or grade.better):
-            self.compare(ex, grade)
-        if grade is not None and ex.notes and (grade.optimal or grade.better):
-            print()
-            print(ink.dim("  " + ex.notes.replace("\n", "\n  ")))
-        if grade is not None and not (grade.optimal or grade.better):
-            print(ink.dim("  try again, :hint, or :s for the solution"))
+    # -- moving through the screens of this session ------------------------- #
+    def browse(self, delta):
+        if not self.frames:
+            return
+        at = len(self.frames) - 1 if self.frame_at is None else self.frame_at
+        target = at + delta
+        if target < 0:
+            print(self.ink.dim("  that is the oldest screen of this session"))
+            return
+        target = min(target, len(self.frames) - 1)
+        self.frame_at = None if target == len(self.frames) - 1 else target
+        frame = self.frames[target]
+        ex = get(frame.number)
+        if ex is not None and ex is not self.current:
+            self.current = ex
+            self.hint_at = 0
+            progress.set_current(self.data, ex.number)
+        where = f"screen {target + 1}/{len(self.frames)}"
+        if self.frame_at is None:
+            where += " (latest)"
+        self.render(frame.lines,
+                    note=f"  {where}   alt+up / alt+down to move   "
+                         f"the prompt belongs to Exercise #{self.current.number}")
+
+    def bind_keys(self):
+        """Wire alt/ctrl + up/down to the screen history.
+
+        readline owns the line, so the binding is a macro that clears whatever is
+        typed and submits ':back'/':fwd' - the same thing you could type by hand.
+        """
+        sequences = {
+            ":back": (r"\e[1;3A", r"\e\e[A", r"\e[1;5A", r"\e[1;9A", r"\e[1;2A"),
+            ":fwd": (r"\e[1;3B", r"\e\e[B", r"\e[1;5B", r"\e[1;9B", r"\e[1;2B"),
+        }
+        for command, keys in sequences.items():
+            for key in keys:
+                try:
+                    readline.parse_and_bind(f'"{key}": "\\C-a\\C-k{command}\\n"')
+                except Exception:          # libedit, or a readline build that refuses
+                    return
+
+    def probe_key(self):
+        """Report what a key combination actually sends, so it can be bound."""
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print("  needs a real terminal")
+            return
+        import select
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        saved = termios.tcgetattr(fd)
+        print(self.ink.dim("  press the key combination ... "), end="", flush=True)
+        try:
+            tty.setraw(fd)
+            data = os.read(fd, 8)
+            while select.select([fd], [], [], 0.06)[0]:
+                data += os.read(fd, 8)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+        shown = data.decode(errors="replace").replace("\033", r"\e")
+        print(f'\n  it sends "{shown}"')
+        print(self.ink.dim("  to use it for screen history, put this in ~/.inputrc:"))
+        print(f'    "{shown}": "\\C-a\\C-k:back\\n"')
 
     @staticmethod
     def _same_code(a, b):
@@ -319,19 +434,17 @@ class Session:
         """Once it passes, put your answer next to the reference one."""
         ink = self.ink
         mine, ref = grade.attempt.code.strip(), ex.solution.strip()
-        print()
+        out = [""]
         if self._same_code(mine, ref):
-            print(ink.dim(f"  that is the reference solution - {ex.title}"))
-            return
-        print(ink.dim(f"  reference solution ({ex.title}), {grade.target} "
-                      f"quer{'y' if grade.target == 1 else 'ies'}:"))
-        for line in ref.split("\n"):
-            print(ink.green("    " + line))
-        print(ink.dim(f"  yours, {grade.nqueries} quer"
-                      f"{'y' if grade.nqueries == 1 else 'ies'}"
-                      f"{' - fewer!' if grade.better else ''}:"))
-        for line in mine.split("\n"):
-            print("    " + line)
+            return out + [ink.dim(f"  that is the reference solution - {ex.title}")]
+        out.append(ink.dim(f"  reference solution ({ex.title}), {grade.target} "
+                           f"quer{'y' if grade.target == 1 else 'ies'}:"))
+        out += [ink.green("    " + line) for line in ref.split("\n")]
+        out.append(ink.dim(f"  yours, {grade.nqueries} quer"
+                           f"{'y' if grade.nqueries == 1 else 'ies'}"
+                           f"{' - fewer!' if grade.better else ''}:"))
+        out += ["    " + line for line in mine.split("\n")]
+        return out
 
     def solution(self, ex):
         ink, ref = self.ink, self.reference(ex)
@@ -450,14 +563,15 @@ class Session:
             pass
         readline.set_history_length(2000)
         atexit.register(lambda: readline.write_history_file(HISTORY))
+        self.bind_keys()
 
         ink = self.ink
         print(ink.bold("django ORM practice") +
               ink.dim(f"   {len(EXERCISES)} exercises, in-memory sqlite, "
                       f"all models pre-imported"))
-        current = get(self.number) or EXERCISES[0]
+        self.current = get(self.number) or EXERCISES[0]
         self.hint_at = 0
-        self.show(current)
+        self.show(self.current)
         while True:
             try:
                 code = self.read()
@@ -467,7 +581,7 @@ class Session:
             if code is None:
                 continue
             if code.startswith(":") or code in ("?", "help"):
-                nxt = self.command(code, current)
+                nxt = self.command(code, self.current)
                 if nxt == "quit":
                     break
                 if isinstance(nxt, int):
@@ -475,17 +589,17 @@ class Session:
                     if target is None:
                         print(f"  no exercise {nxt}")
                         continue
-                    current = target
+                    self.current = target
                     self.hint_at, self.last = 0, None
-                    progress.set_current(self.data, current.number)
-                    self.show(current)
+                    progress.set_current(self.data, self.current.number)
+                    self.show(self.current)
                 continue
-            grade = engine.grade(current, code, self.reference(current))
+            grade = engine.grade(self.current, code, self.reference(self.current))
             self.last, self.last_grade = grade.attempt, grade
-            progress.record_attempt(self.data, current, grade)
-            self.paint(current, grade)
+            progress.record_attempt(self.data, self.current, grade)
+            self.paint(self.current, grade)
             if grade.ok and self.only is None:
-                nxt = get(current.number + 1)
+                nxt = get(self.current.number + 1)
                 if nxt is None:
                     print(ink.bold("\n  that was the last one. :stats to see how it went."))
                     continue
@@ -498,10 +612,10 @@ class Session:
                 if typed:
                     self.pending = typed
                     continue
-                current = nxt
+                self.current = nxt
                 self.hint_at, self.last = 0, None
-                progress.set_current(self.data, current.number)
-                self.show(current)
+                progress.set_current(self.data, self.current.number)
+                self.show(self.current)
         progress.save(self.data)
         solved, clean, total = progress.summary(self.data, EXERCISES)
         print(ink.dim(f"  saved - {solved}/{total} solved, {clean} within budget"))
@@ -587,6 +701,18 @@ class Session:
             self.sql()
         elif cmd in ("v", "view"):
             self.view(ex, arg)
+        elif cmd in ("back", "b"):
+            self.browse(-1)
+        elif cmd in ("fwd", "forward", "f"):
+            self.browse(+1)
+        elif cmd == "key":
+            self.probe_key()
+        elif cmd in ("fs", "fullscreen"):
+            self.fullscreen = not self.fullscreen
+            self.data["fullscreen"] = self.fullscreen
+            progress.save(self.data)
+            print(f"  fullscreen {'on' if self.fullscreen else 'off'}")
+            self.paint(ex, self.last_grade)
         elif cmd in ("keys", "k"):
             self.show_keys = not self.show_keys
             self.data["keys"] = self.show_keys

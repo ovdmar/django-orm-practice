@@ -105,6 +105,28 @@ Rows are clipped to the column; `:v` opens the whole answer in a full-screen pag
 leaves it), `:v ref` does the same for the reference answer and `:v sql` for every query the
 attempt ran.
 
+### Screens
+
+Each exercise takes the whole window: the screen is redrawn from the top and every screen is
+sized to fit your terminal, so nothing scrolls away mid-exercise. Because that costs you the
+scrollback, the session keeps its screens and you can step back through them:
+
+```
+alt+↑ / alt+↓      the previous / next screen of this session  (ctrl+↑ / ctrl+↓ also work)
+:b :back  :f :fwd  the same thing, typed
+```
+
+Stepping onto an older screen also makes that exercise current, so you can pick up where that
+screen left off — the footer says which exercise the prompt belongs to.
+
+**Cmd+arrows cannot be used.** macOS terminals keep Cmd for themselves and Linux window
+managers grab Super, so nothing reaches the program. Alt/Option and Ctrl do arrive. If your
+terminal sends something else, `:key` prints the escape sequence it produced and the `~/.inputrc`
+line that binds it.
+
+`:fs` turns fullscreen off if you would rather screens scrolled past each other
+(`--no-fullscreen` to start that way).
+
 ### Layout
 
 `auto` picks by terminal width: three columns from 130 columns, two (result + schema) from 96,
@@ -160,6 +182,10 @@ bar (`--no-keys` starts without it).
 * Answers are compared after deep normalisation (models → `Model#pk`, dates → ISO, decimals
   rounded, lists sorted unless the task says the order matters), so `values_list` order or a
   set vs a list will not fail you — but returning dicts where tuples were asked for will.
+* `tests/test_screen_history.py` drives the CLI through a pty and checks alt/ctrl+arrows really
+  move between screens while plain arrows stay with readline history;
+  `tests/test_frames_fit.py` builds both screens of all 86 exercises at four terminal heights
+  and three widths and asserts none of them overflows the window.
 * `.venv/bin/python tests/test_prompt_width.py` drives the CLI through a pty and checks that
   readline knows the true width of the coloured prompt — get that wrong and the visible cursor
   refuses to walk back over the first few characters of your query.
