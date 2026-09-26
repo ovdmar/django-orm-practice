@@ -42,15 +42,23 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
 ## What a turn looks like
 
 ```
-──────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────────
 54/86  Reverse FK   [prefetch_related]
-──────────────────────────────────────────────────────────────────────────────
-  Authors with pk <= 20, each with their books.
+────────────────────────────────────────────────────────────────────────────────────
+  Authors with pk <= 20, each with their books.   │ Author
+                                                  │   firstname lastname address zipcode
+  budget: 2 queries                               │   telephone joindate popularity_score
+                                                  │   books <- Book.author
+                                                  │   +7 more relations
+                                                  │
+                                                  │ Book
+                                                  │   title genre price published_date
+                                                  │   page_count
+                                                  │   author -> Author?
+                                                  │   +8 more relations
 
   the grader consumes your result like this:
     lambda qs: [(a.lastname, sorted(b.title for b in a.books.all())) for a in qs]
-
-  budget: 2 queries
 >>> Author.objects.filter(pk__lte=20)
   ~ correct, but 21 queries instead of 2
     20x  SELECT "bookstore_book"."id", "bookstore_book"."title", ...
@@ -58,6 +66,11 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
 >>> Author.objects.filter(pk__lte=20).prefetch_related("books")
   ✓ correct, 2 queries - optimal
 ```
+
+The **schema reminder** on the right lists only the models that exercise involves, and of
+their relations only the ones in play (`+N more relations` for the rest, `:m` for the whole
+schema). On a terminal narrower than 96 columns it collapses to one line per model above the
+task. `:sc` toggles it, `./orm --no-schema` starts with it off.
 
 The **"the grader consumes your result like this"** block is the contract: it is the actual
 code that will touch your result, so it tells you which related objects get walked — which is
@@ -88,7 +101,8 @@ statements has to arrive as one snippet.
 :diff          reference answer vs yours
 :n :p :g N     next / previous / jump to N
 :l :list       all exercises and your progress     :stats   progress summary
-:m :models     the schema                          :d :data row counts
+:m :models     the whole schema                    :d :data row counts
+:sc :schema    toggle the per-exercise schema reminder
 :reset         wipe progress                       :q       quit
 ```
 

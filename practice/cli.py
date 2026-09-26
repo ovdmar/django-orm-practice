@@ -3,9 +3,11 @@
 import atexit
 import os
 import readline
+import shutil
+import textwrap
 import sys
 
-from practice import engine, progress
+from practice import engine, progress, schema
 from practice.exercises import EXERCISES, SECTIONS, get
 
 HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".history")
@@ -22,7 +24,7 @@ COMMANDS = """
   :sql           the SQL your last attempt actually ran
   :diff          reference answer vs yours, for the last attempt
   :d :data       row counts in the database
-  :m :models     the schema
+  :m :models     the whole schema      :sc :schema  toggle the schema reminder
   :stats         your progress            :reset        wipe saved progress
   :q :quit       leave (progress is saved after every attempt)
 """
@@ -55,6 +57,7 @@ class Session:
         self.hint_at = 0
         self.pending = None     # a line typed at the "next exercise" prompt
         self.told_multiline = False
+        self.show_schema = self.data.get("schema", True)
 
     # -- reference answers ------------------------------------------------- #
     def reference(self, ex):
@@ -74,26 +77,61 @@ class Session:
             best, target = done.get("best_queries"), done.get("target")
             mark = "solved" if best is not None and target is not None and best <= target else "solved (slow)"
             badge = ink.dim(f"  [{mark}, best {best}q]")
+        width = shutil.get_terminal_size((80, 24)).columns
+        contract = engine.source_of(ex.consume)
+        budget = f"budget: {ref.nqueries} quer{'y' if ref.nqueries == 1 else 'ies'}"
+        if ex.mutates:
+            budget += "   (writes are rolled back after every attempt)"
+        sidebar = schema.panel(ex, contract, width=38) if self.show_schema else []
+        beside = bool(sidebar) and width >= 96
+        left_w = min(62, width - 44) if beside else 0
+        rule = min(width - 1, left_w + 2 + max(len(r) for r in sidebar)) if beside \
+            else min(width - 1, 78)
+
         print()
-        print(ink.blue("─" * 78))
+        print(ink.blue("─" * rule))
         print(ink.bold(f"{ex.number}/{len(EXERCISES)}  {ex.title}") +
               ink.dim(f"   [{ex.section}]") + badge)
-        print(ink.blue("─" * 78))
-        for line in ex.prompt.split("\n"):
-            print("  " + line)
-        contract = engine.source_of(ex.consume)
+        print(ink.blue("─" * rule))
+
+        if beside:
+            left = []
+            for para in ex.prompt.split("\n"):
+                left += textwrap.wrap(para, left_w - 2, initial_indent="  ",
+                                      subsequent_indent="  ") or [""]
+            left += ["", "  " + budget]
+            self._columns(left, sidebar, left_w)
+        else:
+            if self.show_schema:
+                for line in schema.compact(ex, contract, width=min(width, 96) - 4):
+                    print(ink.dim("  " + line))
+                print()
+            for para in ex.prompt.split("\n"):
+                for line in textwrap.wrap(para, min(width, 98) - 2, initial_indent="  ",
+                                          subsequent_indent="  ") or [""]:
+                    print(line)
+            print()
+            print(ink.yellow("  " + budget))
         if contract:
             print()
             print(ink.dim("  the grader consumes your result like this:"))
             for line in contract.split("\n"):
                 print(ink.dim("    " + line))
-        print()
-        budget = f"  budget: {ref.nqueries} quer{'y' if ref.nqueries == 1 else 'ies'}"
-        if ex.mutates:
-            budget += ink.dim("   (writes are rolled back after every attempt)")
-        print(ink.yellow(budget))
         if ex.hints:
             print(ink.dim(f"  {len(ex.hints)} hint(s) available - :hint"))
+
+    def _columns(self, left, right, left_w):
+        """Print the task on the left, the schema reminder on the right."""
+        ink = self.ink
+        for i in range(max(len(left), len(right))):
+            cell = left[i] if i < len(left) else ""
+            text = ink.yellow(cell) if cell.strip().startswith("budget:") else cell
+            pad = " " * max(0, left_w - len(cell))
+            line = text + pad + ink.dim("│ ")
+            if i < len(right):
+                r = right[i]
+                line += ink.bold(r) if r and not r.startswith(" ") else ink.dim(r)
+            print(line.rstrip())
 
     def verdict(self, ex, grade):
         ink = self.ink
@@ -212,24 +250,9 @@ class Session:
             print(f"  {model.__name__:<16} {model.objects.count():>6}")
 
     def models(self):
-        from django.apps import apps
         ink = self.ink
-        for model in apps.get_app_config("bookstore").get_models():
-            print(ink.bold(f"\n  {model.__name__}"))
-            for f in model._meta.get_fields():
-                kind = type(f).__name__
-                if f.is_relation:
-                    target = f.related_model.__name__ if f.related_model else "?"
-                    extra = ""
-                    if getattr(f, "null", False):
-                        extra = " null"
-                    if f.auto_created and not f.concrete:
-                        name = getattr(f, "get_accessor_name", lambda: f.name)()
-                        print(ink.dim(f"    {name:<22} reverse {kind} -> {target}{extra}"))
-                        continue
-                    print(f"    {f.name:<22} {kind} -> {target}{extra}")
-                else:
-                    print(ink.dim(f"    {f.name:<22} {kind}"))
+        for line in schema.full():
+            print(ink.bold("  " + line) if line and not line.startswith(" ") else ink.dim("  " + line))
 
     # -- the loop ---------------------------------------------------------- #
     def run(self):
@@ -383,6 +406,12 @@ class Session:
             self.models()
         elif cmd == "stats":
             self.stats()
+        elif cmd in ("sc", "schema"):
+            self.show_schema = not self.show_schema
+            self.data["schema"] = self.show_schema
+            progress.save(self.data)
+            print(f"  schema reminder {'on' if self.show_schema else 'off'}")
+            self.show(ex)
         elif cmd == "reset":
             progress.reset()
             self.data = progress.load()

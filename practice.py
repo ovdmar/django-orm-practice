@@ -27,6 +27,7 @@ def main():
                     help="run every reference solution and report query budgets")
     ap.add_argument("--data", action="store_true", help="print row counts and exit")
     ap.add_argument("--no-color", action="store_true")
+    ap.add_argument("--no-schema", action="store_true", help="hide the schema reminder")
     args = ap.parse_args()
 
     from practice.bootstrap import build_database
@@ -59,6 +60,8 @@ def main():
         data = progress.load()
         start = data.get("current") or progress.first_unsolved(data, EXERCISES)
     session = Session(start=start, only=args.only, color=not args.no_color)
+    if args.no_schema:
+        session.show_schema = False
     if args.list:
         session.listing()
         return 0
