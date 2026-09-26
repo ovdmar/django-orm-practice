@@ -160,7 +160,31 @@ class Session:
             out.append(("(writes are rolled back)", self.ink.dim))
         return out
 
-    def _result_cell(self, ex, grade, width, max_rows=14):
+    def _sql_lines(self, att, width, limit=4):
+        """The SQL the attempt actually ran, one line per distinct query shape."""
+        if not att.queries:
+            return []
+        dim = self.ink.dim
+        shapes = att.shapes()
+        plural = "query" if len(att.queries) == 1 else "queries"
+        head = f"sql - {len(att.queries)} {plural}"
+        if len(shapes) != len(att.queries):
+            head += f", {len(shapes)} distinct"
+        out = [("", None), (head + ":", dim)]
+        for i, (sql, n) in enumerate(shapes[:limit], 1):
+            repeat = f"x{n} " if n > 1 else ""
+            out.append((f"{i}. {repeat}{engine.shorten_sql(sql)}", dim))
+        if len(shapes) > limit:
+            out.append((f"... {len(shapes) - limit} more shape(s)", dim))
+        out.append((":v sql for the full text", dim))
+        return out
+
+    def _result_budget(self):
+        """(rows, sql shapes) that still leave the screen readable."""
+        lines = shutil.get_terminal_size((80, 24)).lines
+        return min(14, max(4, lines - 24)), min(5, max(2, (lines - 18) // 4))
+
+    def _result_cell(self, ex, grade, width, max_rows=14, max_sql=4):
         ink, att = self.ink, grade.attempt
         out = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:4]]
         plural = "query" if grade.nqueries == 1 else "queries"
@@ -168,11 +192,11 @@ class Session:
             out += [("✗ the grader cannot read what you returned", ink.red),
                     (f"you returned {att.raw}", ink.dim),
                     (att.error.split("\n")[-1], None)]
-            return out
+            return out + self._sql_lines(att, width, max_sql)
         if att.error:
             out.append(("✗ your code raised", ink.red))
             out += [(l.strip(), None) for l in att.error.split("\n")[-4:]]
-            return out
+            return out + self._sql_lines(att, width, max_sql)
         if grade.better:
             out.append((f"✓ correct in {grade.nqueries} {plural} - beats the "
                         f"reference ({grade.target})!", ink.green))
@@ -183,10 +207,8 @@ class Session:
                         f"instead of {grade.target}", ink.yellow))
         else:
             out.append((f"✗ wrong answer ({grade.nqueries} {plural})", ink.red))
-        if grade.ok and not grade.optimal:
-            for n, shape in att.repeated_shapes()[:1]:
-                out.append((f"{n}x {shape}", ink.dim))
-            out.append(("that repeated shape is the N+1", ink.dim))
+        if grade.ok and not grade.optimal and att.repeated_shapes():
+            out.append(("the repeated query below is the N+1", ink.dim))
         rows, total = engine.render_rows(att.value, width, max_rows)
         out.append(("", None))
         out += [(r, None) for r in rows]
@@ -201,7 +223,7 @@ class Session:
             tail.append(":v to view, :diff to compare" if not grade.ok else ":v to view it all")
         if tail:
             out.append((" - ".join(tail), ink.dim))
-        return out
+        return out + self._sql_lines(att, width, max_sql)
 
     def _schema_cell(self, ex, contract, width, max_lines=None):
         """Field definitions, capped so the whole screen still fits the window."""
@@ -248,7 +270,7 @@ class Session:
                 elif name == "schema":
                     cells[name] = self._schema_cell(ex, contract, w)
                 else:
-                    cells[name] = self._result_cell(ex, grade, w)
+                    cells[name] = self._result_cell(ex, grade, w, *self._result_budget())
             self._grid(cells, plan)
             if grade is not None and "task" not in names:
                 pass          # the task is a few lines up in the scrollback
@@ -268,7 +290,8 @@ class Session:
                                  ("   (writes are rolled back)" if ex.mutates else "")))
             else:
                 cell_w = min(width, 112) - 3
-                for text, style in self._result_cell(ex, grade, cell_w, max_rows=10):
+                rows, sqls = self._result_budget()
+                for text, style in self._result_cell(ex, grade, cell_w, rows, sqls):
                     line = ("  " + self._clip(text, cell_w)).rstrip()
                     print(style(line) if style else line)
 
@@ -345,7 +368,9 @@ class Session:
             body = "\n\n".join(f"{i:>3}. [{q['time']}s] {q['sql']}"
                                 for i, q in enumerate(self.last.queries, 1))
             pager.page(body or "no queries at all",
-                       f"{len(self.last.queries)} query/queries from your last attempt")
+                       f"exact SQL - {len(self.last.queries)} "
+                       f"quer{'y' if len(self.last.queries) == 1 else 'ies'} "
+                       f"from your last attempt")
         elif self.last is None or self.last.error:
             print("  no result to view - run a query first")
         else:
@@ -395,13 +420,16 @@ class Session:
             if seen[shape] > 2 or shown >= limit:
                 continue
             shown += 1
-            print(self.ink.dim(f"  {i:>3}. {q['time']}s  ") + engine._trim(q["sql"], 140))
+            print(self.ink.dim(f"  {i:>3}. {q['time']}s  ")
+                  + engine._trim(engine.shorten_sql(q["sql"]), 140))
         hidden = len(self.last.queries) - shown
         if hidden:
             print(self.ink.dim(f"  ... {hidden} more query/queries not shown; "
                                f"{len(self.last.shape_counts())} distinct shape(s) in total:"))
             for n, shape in self.last.repeated_shapes()[:3]:
-                print(self.ink.dim(f"      {n}x  ") + engine._trim(shape, 100))
+                print(self.ink.dim(f"      {n}x  ")
+                      + engine._trim(engine.shorten_sql(shape), 100))
+        print(self.ink.dim("  (names shortened; :v sql has the exact text)"))
 
     def data_summary(self):
         from practice import seed  # noqa: F401

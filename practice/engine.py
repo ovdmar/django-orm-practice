@@ -12,6 +12,59 @@ from dataclasses import dataclass, field
 from django.db import connection, models, transaction
 from django.test.utils import CaptureQueriesContext
 
+def shape_of(sql):
+    """The query with its literals blanked out, so N+1 repeats collapse together."""
+    return re.sub(r"'[^']*'", "?", re.sub(r"\b\d+\b", "?", sql))
+
+
+def _split_top_level(text, separator=","):
+    """Split on `separator`, ignoring anything inside parentheses."""
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == separator and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+def _collapse_columns(sql):
+    """SELECT a, b, c, d FROM x -> SELECT a, +3 cols FROM x.
+
+    The column list is the least interesting part of a query and the longest;
+    dropping it is what makes the JOIN and the WHERE visible in a narrow column.
+    """
+    head = re.match(r"SELECT\s+(DISTINCT\s+)?", sql, re.I)
+    if not head:
+        return sql
+    depth, cut = 0, None
+    for m in re.finditer(r"[()]|\sFROM\s", sql[head.end():], re.I):
+        token = m.group()
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            depth -= 1
+        elif depth == 0:
+            cut = head.end() + m.start()
+            break
+    if cut is None:
+        return sql
+    columns = _split_top_level(sql[head.end():cut])
+    if len(columns) <= 2:
+        return sql
+    return f"{sql[:head.end()]}{columns[0].strip()}, +{len(columns) - 1} cols{sql[cut:]}"
+
+
+def shorten_sql(sql, collapse=True):
+    """Drop the quoting and the app prefix - unreadable in a narrow column."""
+    sql = " ".join(re.sub(r"\bbookstore_", "", sql.replace('"', "")).split())
+    return _collapse_columns(sql) if collapse else sql
+
+
 TXN_NOISE = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b", re.I)
 
 
@@ -135,17 +188,25 @@ class Attempt:
     def shape_counts(self):
         shapes = {}
         for q in self.queries:
-            shape = re.sub(r"'[^']*'", "?", re.sub(r"\b\d+\b", "?", q["sql"]))
-            shapes.setdefault(shape, []).append(q)
+            shapes.setdefault(shape_of(q["sql"]), []).append(q)
         return shapes
+
+    def shapes(self):
+        """[(sql, how many like it)] in the order the shapes first appeared."""
+        out, index = [], {}
+        for q in self.queries:
+            key = shape_of(q["sql"])
+            if key in index:
+                out[index[key]][1] += 1
+            else:
+                index[key] = len(out)
+                out.append([q["sql"], 1])
+        return [(sql, n) for sql, n in out]
 
     def repeated_shapes(self):
         """Queries that differ only in their literals -> the N+1 signature."""
-        shapes = {}
-        for q in self.queries:
-            shape = re.sub(r"'[^']*'", "?", re.sub(r"\b\d+\b", "?", q["sql"]))
-            shapes[shape] = shapes.get(shape, 0) + 1
-        return sorted(((n, s) for s, n in shapes.items() if n > 1), reverse=True)
+        counts = {s: len(qs) for s, qs in self.shape_counts().items()}
+        return sorted(((n, s) for s, n in counts.items() if n > 1), reverse=True)
 
 
 def run(code, consume=None, order_matters=False):
