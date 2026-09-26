@@ -1,6 +1,8 @@
 """A compact schema reminder, narrowed down to the models an exercise touches."""
 
+import ast
 import collections
+import inspect
 import re
 import textwrap
 
@@ -68,6 +70,26 @@ def _relations(model):
     return out
 
 
+def _str_expr(model):
+    """What __str__ returns, with self renamed to o.
+
+    Worth knowing before you count queries: str(obj) is ordinary Python, so one that
+    reads a related object costs a query per row, while one that reads book_id does not.
+    """
+    if "__str__" not in model.__dict__:
+        return None
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(model.__str__)))
+    except (OSError, TypeError, SyntaxError):
+        return None
+    returns = [node for node in ast.walk(tree)
+               if isinstance(node, ast.Return) and node.value is not None]
+    if not returns:
+        return None
+    text = ast.unparse(returns[0].value).replace("self.", "o.")
+    return text + (" ..." if len(returns) > 1 else "")
+
+
 def _attnames(model):
     """{relation name: column name} where they differ - author -> author_id."""
     return {f.name: f.attname for f in model._meta.get_fields()
@@ -117,6 +139,10 @@ def describe(model, width=40, keep=None, mark_more=True, tokens=()):
             for line in textwrap.wrap(choices, width - 4, initial_indent="    ",
                                       subsequent_indent="    "):
                 lines.append(line)
+    expression = _str_expr(model)
+    if expression:
+        lines += textwrap.wrap(f"str: {expression}", max(16, width - 2),
+                               initial_indent="  ", subsequent_indent="        ")
     rels, attnames, hidden = _relations(model), _attnames(model), 0
     for name, rel in rels.items():
         if keep is None or name in keep:
