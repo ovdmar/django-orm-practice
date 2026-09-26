@@ -10,7 +10,7 @@ import textwrap
 import sys
 
 from practice import complete, engine, pager, progress, schema
-from practice.exercises import EXERCISES, SECTIONS, get
+from practice.exercises import EXERCISES, LEVELS, SECTIONS, get
 
 HISTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".history")
 
@@ -46,11 +46,11 @@ COMMANDS = """
 Frame = collections.namedtuple("Frame", "number lines")
 
 KEYS = [                      # in priority order: the tail is dropped if it will not fit
-    (":h", "help"), (":s", "solution"), (":hint", ""), (":v", "view"), (":diff", ""),
-    (":sql", ""), (":n", "next"), (":p", "prev"), (":g N", "goto"), (":l", "list"),
-    (":m", "models"), ("tab", "complete"), (":ml", "multi-line"), ("alt+up/dn", "screens"), ("^c", "clear"), ("^d", "quit"),
-    (":stats", ""), (":sc", "schema"), (":fs", "fullscreen"),
-    (":k", "keys"),
+    (":h", "help"), ("tab", "completes fields"), (":s", "solution"), (":hint", ""),
+    (":v", "view"), (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"),
+    (":g N", "goto"), (":l", "list"), (":m", "models"), ("alt+up/dn", "screens"),
+    ("^c", "clear"), ("^d", "quit"), (":ml", "multi-line"), (":stats", ""),
+    (":sc", "schema"), (":fs", "fullscreen"), (":k", "keys"),
 ]
 
 
@@ -96,6 +96,11 @@ class Session:
         self.frame_at = None      # None = looking at the latest one
         self.current = None
 
+    def level_ink(self, ex):
+        colour = {"easy": self.ink.green, "medium": self.ink.yellow,
+                  "hard": self.ink.red}.get(ex.level, self.ink.dim)
+        return colour(ex.level)
+
     def revealed(self, ex):
         """Has the name of the technique stopped being a spoiler?"""
         d = self.data["exercises"].get(ex.slug, {})
@@ -138,7 +143,7 @@ class Session:
         line = ""
         for key, label in KEYS:
             item = f"{key} {label}".strip()
-            candidate = f"{line}   {item}" if line else item
+            candidate = f"{line}  {item}" if line else item
             if len(candidate) > max(40, width):
                 break
             line = candidate
@@ -380,8 +385,9 @@ class Session:
         title = ink.dim(f"   {ex.title}") if self.revealed(ex) else ""
         head += [
             ink.blue("─" * rule),
-            ink.bold(f"Exercise #{ex.number}") +
-            ink.dim(f" of {len(EXERCISES)}   [{ex.section}]") + title + badge,
+            ink.bold(f"Exercise #{ex.number}") + ink.dim(f" of {len(EXERCISES)}   [") +
+            ink.dim(ex.section) + ink.dim(" · ") + self.level_ink(ex) + ink.dim("]") +
+            title + badge,
             ink.blue("─" * rule),
         ]
 
@@ -586,7 +592,8 @@ class Session:
             else:
                 flag = ink.dim(" ·")
             name = ex.title if (titles or self.revealed(ex)) else ""
-            print(f"{flag} {ex.number:>3}. {name}".rstrip())
+            print(f"{flag} {ex.number:>3}. {self.level_ink(ex)}"
+                  f"{'':<{max(0, 7 - len(ex.level))}}{name}".rstrip())
 
     def stats(self):
         solved, clean, total = progress.summary(self.data, EXERCISES)
@@ -597,7 +604,11 @@ class Session:
         for name in SECTIONS:
             exs = [e for e in EXERCISES if e.section == name]
             s, c, t = progress.summary(self.data, exs)
-            print(f"    {name:<18} {s:>3}/{t:<4} optimal {c}")
+            print(f"    {name:<18} {s:>3}/{t:<4} within budget {c}")
+        for level in LEVELS:
+            exs = [e for e in EXERCISES if e.level == level]
+            s, c, t = progress.summary(self.data, exs)
+            print(f"    {level:<18} {s:>3}/{t:<4} within budget {c}")
 
     def sql(self, limit=8):
         if self.last is None:
@@ -642,6 +653,9 @@ class Session:
         print(ink.bold("django ORM practice") +
               ink.dim(f"   {len(EXERCISES)} exercises, in-memory sqlite, "
                       f"all models pre-imported"))
+        print(ink.dim("  tab completes model names, fields, ") +
+              ink.bold("field paths") + ink.dim(" and lookups - "
+              "Book.objects.filter(publisher__coun") + ink.bold("<tab>"))
         self.current = get(self.number) or EXERCISES[0]
         self.hint_at = 0
         self.show(self.current)

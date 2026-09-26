@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
+LEVELS = ("easy", "medium", "hard")
+
 SECTIONS = {
     "basics": "Warm-up: filtering, ordering, aggregation (the article's 40)",
     "select_related": "select_related: killing N+1 across forward FK / O2O",
@@ -21,6 +23,7 @@ class Exercise:
     order_matters: bool = False
     naive: Optional[str] = None   # correct but query-hungry; --verify proves it costs more
     notes: str = ""               # the lesson, shown together with the solution
+    level: str = "medium"         # easy / medium / hard
     mutates: bool = False
     number: int = 0
 

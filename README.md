@@ -4,7 +4,16 @@ An ORM drill you run in a terminal. It loads a seeded database into memory, hand
 task at a time, runs whatever query you type, and grades it twice: **did it return the right
 answer**, and **how many SQL queries did it take** compared with the reference solution.
 
+**Tab completes the schema as you type** — model names, attributes, `__` field paths across any
+number of relations, and a field's lookups: `Book.objects.filter(publisher__coun<TAB>`. Inside
+`select_related()` it offers only the relations it can actually join, so completion doubles as a
+check on the exercise. You also get the query plan each attempt cost, an explanation of every
+exercise, and a difficulty tag on each one.
+
 86 exercises, in four sections:
+
+Each exercise is tagged **easy** (31), **medium** (41) or **hard** (14), shown in its header and
+in `:l`; `./orm --level hard` starts at the first hard one.
 
 | section | n | what it drills |
 |---|---|---|
@@ -32,6 +41,7 @@ With no arguments it resumes where you left off. Progress lives in `.progress.js
 
 ```bash
 ./orm --from 41            # start at exercise 41
+./orm --level hard         # start at the first hard exercise
 ./orm --only 54            # drill exercise 54 alone, do not advance
 ./orm --section prefetch_related
 ./orm --list               # all exercises, with what you have solved
@@ -47,7 +57,7 @@ right) — with one line of shortcuts above it, so nothing has to be memorised a
 ```
 :h help   :s solution   :hint   :v view   :diff   :sql   :n next   :p prev   :g N goto   :l list   :m models   alt+up/dn screens   ^c clear   ^d quit
 ────────────────────────────────────────────────────────────────────────────────────
-Exercise #54 of 86   [prefetch_related]
+Exercise #54 of 86   [prefetch_related · easy]
 ────────────────────────────────────────────────────────────────────────────────────
   Authors with pk <= 20,   │ >>> ...                        │ Author
   each with their books.   │                                │   id               AutoField(pk)

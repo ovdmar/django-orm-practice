@@ -18,6 +18,8 @@ def main():
                     help="start at exercise N")
     ap.add_argument("-o", "--only", type=int, metavar="N",
                     help="work on exercise N alone, do not advance")
+    ap.add_argument("--level", choices=["easy", "medium", "hard"],
+                    help="start at the first exercise of a difficulty")
     ap.add_argument("-s", "--section", choices=["basics", "select_related",
                                                 "prefetch_related", "advanced"],
                     help="start at the first exercise of a section")
@@ -59,6 +61,8 @@ def main():
     start = args.only or args.start
     if args.section and not start:
         start = next(e.number for e in EXERCISES if e.section == args.section)
+    if args.level and not start:
+        start = next(e.number for e in EXERCISES if e.level == args.level)
     if start is None:
         data = progress.load()
         start = data.get("current") or progress.first_unsolved(data, EXERCISES)
