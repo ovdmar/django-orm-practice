@@ -41,6 +41,7 @@ class Exercise:
     hints: Sequence[str] = ()
     order_matters: bool = False
     naive: Optional[str] = None   # correct but query-hungry; --verify proves it costs more
+    setup: Optional[Callable] = None   # returns names to hand the snippet, unmeasured
     notes: str = ""               # the lesson, shown together with the solution
     contract: str = ""            # consume's source, filled in at import
     level: str = "medium"         # easy / medium / hard

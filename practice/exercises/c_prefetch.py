@@ -4,6 +4,13 @@ from ._base import Exercise as E
 
 S = "prefetch_related"
 
+
+def _books_in_memory():
+    """Hand the snippet a plain list of Book objects, fetched off the clock."""
+    from bookstore.models import Book
+
+    return {"books": list(Book.objects.order_by("pk")[:30])}
+
 EXERCISES = [
     E(slug="pf-author-books", level="easy", section=S, title="Reverse FK",
       prompt="Authors with pk <= 20, each with their books.",
@@ -109,16 +116,21 @@ EXERCISES = [
              "first."),
 
     E(slug="pf-existing-list", level="hard", section=S, title="prefetch onto objects you already have",
-      prompt="books = list(Book.objects.order_by('pk')[:30]) is already in memory. Attach the reviews of "
-      "those books without fetching the books again, and return the list.",
+      prompt="The list books is already in memory - 30 Book objects, fetched before the clock "
+             "started, exactly as they would arrive from a cache or a serializer. Attach the "
+             "reviews of those books without fetching the books again, and return the list.",
       consume=lambda books: [(b.title, len(b.reviews.all())) for b in books],
-      solution="books = list(Book.objects.order_by('pk')[:30])\n"
-               "prefetch_related_objects(books, 'reviews')\n"
+      setup=_books_in_memory,
+      solution="prefetch_related_objects(books, 'reviews')\n"
                "books",
-      naive="list(Book.objects.order_by('pk')[:30])",
+      naive="books",
       order_matters=True,
-      notes="prefetch_related_objects() is the escape hatch when the objects arrived from somewhere "
-            "else - a cache, a serializer, a previous query."),
+      hints=["the attaching function returns None, so the answer needs two statements - "
+             ":ml lets you type both before anything runs."],
+      notes="prefetch_related_objects() is the escape hatch when the objects arrived from "
+            "somewhere else - a cache, a serializer, a previous query. You cannot call "
+            ".prefetch_related() on a list, and re-querying the books to get one would "
+            "defeat the point."),
 
     E(slug="pf-generic-fk", level="hard", section=S, title="Generic foreign key",
       prompt="The first 40 TaggedItem rows ordered by object_id then pk - that range covers both tagged "

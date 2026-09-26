@@ -303,6 +303,8 @@ E(slug="pf-author-books", section=S, title="Reverse FK",
 ```
 
 `consume` is the grader's contract and is shown to you verbatim — keep it to one line.
-`order_matters=True` if the task specifies an ordering; `mutates=True` for writes. Then run
-`./orm --verify` to confirm the new exercise answers something and that `naive` really is
-slower.
+`order_matters=True` if the task specifies an ordering; `mutates=True` for writes. A `setup`
+returning a dict hands the snippet names that were fetched *before* the measurement started
+(exercise 65 gets its `books` list that way), and those names are listed as `given:` above the
+task. Then run `./orm --verify` to confirm the new exercise answers something and that `naive`
+really is slower.

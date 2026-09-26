@@ -291,6 +291,7 @@ class Attempt:
     raw: str = None               # what you did return, described cheaply
     error_line: int = None        # which line of *your* snippet raised
     traceback: str = None         # the whole thing, for :v err
+    given: tuple = ()             # names the exercise handed the snippet
 
     @property
     def nqueries(self):
@@ -320,14 +321,20 @@ class Attempt:
         return sorted(((n, s) for s, n in counts.items() if n > 1), reverse=True)
 
 
-def run(code, consume=None, order_matters=False):
+def run(code, consume=None, order_matters=False, setup=None):
     """Execute `code`, consume its result, and report value + queries.
 
     Everything happens inside a rolled-back atomic block, so exercises may
-    freely write to the database without disturbing later exercises.
+    freely write to the database without disturbing later exercises. A `setup`
+    runs before the capture starts: what it fetches is the exercise's premise,
+    not something the snippet is charged for.
     """
     ns = build_namespace()
     attempt = Attempt(code=code)
+    if setup is not None:
+        given = setup()
+        ns.update(given)
+        attempt.given = tuple(given)
     with CaptureQueriesContext(connection) as ctx:
         try:
             with transaction.atomic():
@@ -407,8 +414,13 @@ class Grade:
         return "optimal" if self.optimal else "slow"
 
 
+def run_for(exercise, code):
+    """Run `code` the way this exercise is graded - consume, ordering and setup."""
+    return run(code, exercise.consume, exercise.order_matters, exercise.setup)
+
+
 def grade(exercise, code, reference):
-    attempt = run(code, exercise.consume, exercise.order_matters)
+    attempt = run_for(exercise, code)
     ok = attempt.error is None and attempt.value == reference.value
     return Grade(
         ok=ok,

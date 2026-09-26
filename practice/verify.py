@@ -7,7 +7,7 @@ from practice.exercises import EXERCISES
 def check(exercises=None, quiet=False):
     problems = []
     for ex in exercises or EXERCISES:
-        ref = engine.run(ex.solution, ex.consume, ex.order_matters)
+        ref = engine.run_for(ex, ex.solution)
         row = f"{ex.number:>3}. {ex.section[:9]:<9} {ex.slug:<26}"
         if ref.error:
             problems.append((ex, "reference raised", ref.error))
@@ -19,7 +19,7 @@ def check(exercises=None, quiet=False):
             continue
         note = ""
         if ex.naive:
-            nv = engine.run(ex.naive, ex.consume, ex.order_matters)
+            nv = engine.run_for(ex, ex.naive)
             if nv.error:
                 problems.append((ex, "naive raised", nv.error))
                 note = "  NAIVE FAILED: " + nv.error.splitlines()[-1]
@@ -36,7 +36,8 @@ def check(exercises=None, quiet=False):
                 problems.append((ex, "consume source unavailable", ""))
             else:
                 # what the screen shows must be what the grader runs
-                shown = engine.run(ex.solution, eval(ex.contract), ex.order_matters)
+                shown = engine.run(ex.solution, eval(ex.contract),
+                                   ex.order_matters, ex.setup)
                 if shown.error or shown.value != ref.value:
                     problems.append((ex, "displayed contract disagrees",
                                      shown.error or "a different answer"))

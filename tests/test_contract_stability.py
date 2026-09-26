@@ -31,8 +31,8 @@ def main():
 
     # 1. every contract parses and behaves exactly like the consume it stands for
     for ex in with_consume[:8] + with_consume[-8:]:
-        reference = engine.run(ex.solution, ex.consume, ex.order_matters)
-        shown = engine.run(ex.solution, eval(ex.contract), ex.order_matters)
+        reference = engine.run_for(ex, ex.solution)
+        shown = engine.run(ex.solution, eval(ex.contract), ex.order_matters, ex.setup)
         ok = not shown.error and shown.value == reference.value
         failures += 0 if ok else 1
         print(f"  #{ex.number:>2} {ex.slug:<24} "

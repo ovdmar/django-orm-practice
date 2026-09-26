@@ -95,6 +95,7 @@ class Session:
         self.frames = []          # every screen drawn this session
         self.frame_at = None      # None = looking at the latest one
         self.current = None
+        self.completer = None
 
     def level_ink(self, ex):
         colour = {"easy": self.ink.green, "medium": self.ink.yellow,
@@ -112,7 +113,7 @@ class Session:
     # -- reference answers ------------------------------------------------- #
     def reference(self, ex):
         if ex.slug not in self.refs:
-            ref = engine.run(ex.solution, ex.consume, ex.order_matters)
+            ref = engine.run_for(ex, ex.solution)
             if ref.error:
                 print(self.ink.red(f"BUG: reference solution for {ex.slug} failed:\n{ref.error}"))
             self.refs[ex.slug] = ref
@@ -177,6 +178,9 @@ class Session:
     # -- cell contents ----------------------------------------------------- #
     def _task_cell(self, ex, ref, width):
         out = []
+        if ref.given:
+            out.append((f"given: {', '.join(ref.given)}", self.ink.dim))
+            out.append(("", None))
         for para in ex.prompt.split("\n"):
             out += [(l, None) for l in textwrap.wrap(para, width) or [""]]
         budget = f"budget: {ref.nqueries} quer{'y' if ref.nqueries == 1 else 'ies'}"
@@ -337,6 +341,9 @@ class Session:
 
     def paint(self, ex, grade):
         """Build this screen, keep it for later, draw it."""
+        for name in self.reference(ex).given:      # so tab knows about them too
+            if self.completer is not None:
+                self.completer.namespace.setdefault(name, None)
         lines = self.build_frame(ex, grade)
         self.frames.append(Frame(ex.number, lines))
         self.frame_at = None
@@ -465,10 +472,11 @@ class Session:
     def bind_completion(self):
         """Tab completes model names, attributes and field paths."""
         try:
-            readline.set_completer(complete.Completer(engine.build_namespace()))
+            self.completer = complete.Completer(engine.build_namespace())
+            readline.set_completer(self.completer)
             readline.parse_and_bind("tab: complete")
         except Exception:
-            pass
+            self.completer = None
 
     def bind_keys(self):
         """Wire alt/ctrl + up/down to the screen history.
