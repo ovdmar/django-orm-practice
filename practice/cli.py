@@ -82,6 +82,14 @@ class Session:
         self.layout = self.data.get("layout", "auto")
         self.show_keys = self.data.get("keys", True)
 
+    def revealed(self, ex):
+        """Has the name of the technique stopped being a spoiler?"""
+        d = self.data["exercises"].get(ex.slug, {})
+        return bool(d.get("solved") or d.get("solution_shown"))
+
+    def label(self, ex):
+        return f"Exercise #{ex.number}" + (f" - {ex.title}" if self.revealed(ex) else "")
+
     # -- reference answers ------------------------------------------------- #
     def reference(self, ex):
         if ex.slug not in self.refs:
@@ -195,7 +203,10 @@ class Session:
             out.append((" - ".join(tail), ink.dim))
         return out
 
-    def _schema_cell(self, ex, contract, width, max_lines=24):
+    def _schema_cell(self, ex, contract, width, max_lines=None):
+        """Field definitions, capped so the whole screen still fits the window."""
+        if max_lines is None:
+            max_lines = max(12, shutil.get_terminal_size((80, 24)).lines - 12)
         out = []
         for line in schema.panel(ex, contract, width=width, max_lines=max_lines):
             out.append((line, self.ink.bold if line and not line.startswith(" ") else self.ink.dim))
@@ -223,8 +234,9 @@ class Session:
             for line in self._keybar(max(rule, 60)):
                 print(ink.dim(line))
         print(ink.blue("─" * rule))
-        print(ink.bold(f"{ex.number}/{len(EXERCISES)}  {ex.title}") +
-              ink.dim(f"   [{ex.section}]") + badge)
+        title = ink.dim(f"   {ex.title}") if self.revealed(ex) else ""
+        print(ink.bold(f"Exercise #{ex.number}") +
+              ink.dim(f" of {len(EXERCISES)}   [{ex.section}]") + title + badge)
         print(ink.blue("─" * rule))
 
         if plan:
@@ -286,10 +298,10 @@ class Session:
         mine, ref = grade.attempt.code.strip(), ex.solution.strip()
         print()
         if self._same_code(mine, ref):
-            print(ink.dim("  that is the reference solution (bar quoting and whitespace)"))
+            print(ink.dim(f"  that is the reference solution - {ex.title}"))
             return
-        print(ink.dim("  reference solution") +
-              ink.dim(f", {grade.target} quer{'y' if grade.target == 1 else 'ies'}:"))
+        print(ink.dim(f"  reference solution ({ex.title}), {grade.target} "
+                      f"quer{'y' if grade.target == 1 else 'ies'}:"))
         for line in ref.split("\n"):
             print(ink.green("    " + line))
         print(ink.dim(f"  yours, {grade.nqueries} quer"
@@ -301,7 +313,7 @@ class Session:
     def solution(self, ex):
         ink, ref = self.ink, self.reference(ex)
         progress.mark_shown(self.data, ex)
-        print(ink.bold("  reference solution:"))
+        print(ink.bold(f"  reference solution - {ex.title}:"))
         for line in ex.solution.split("\n"):
             print(ink.green("    " + line))
         print(ink.dim(f"    -> {ref.nqueries} quer{'y' if ref.nqueries == 1 else 'ies'}, "
@@ -324,7 +336,8 @@ class Session:
         if what in ("ref", "reference", "solution"):
             ref = self.reference(ex)
             pager.page(engine.dumps(ref.value),
-                       f"reference answer - {ex.number}. {ex.title} ({ref.nqueries} queries)")
+                       f"reference answer - Exercise #{ex.number} {ex.title} "
+                       f"({ref.nqueries} queries)")
         elif what == "sql":
             if self.last is None:
                 print("  nothing run yet")
@@ -337,10 +350,10 @@ class Session:
             print("  no result to view - run a query first")
         else:
             pager.page(engine.dumps(self.last.value),
-                       f"your last answer - {ex.number}. {ex.title} "
+                       f"your last answer - {self.label(ex)} "
                        f"({self.last.nqueries} queries)")
 
-    def listing(self):
+    def listing(self, titles=False):
         ink = self.ink
         section = None
         for ex in EXERCISES:
@@ -354,7 +367,8 @@ class Session:
                 flag = ink.green(" ✓") if ok else ink.yellow(" ~")
             else:
                 flag = ink.dim(" ·")
-            print(f"{flag} {ex.number:>3}. {ex.title}")
+            name = ex.title if (titles or self.revealed(ex)) else ""
+            print(f"{flag} {ex.number:>3}. {name}".rstrip())
 
     def stats(self):
         solved, clean, total = progress.summary(self.data, EXERCISES)
@@ -540,7 +554,7 @@ class Session:
                 return int(arg)
             print("  usage: :g 42")
         elif cmd in ("l", "list"):
-            self.listing()
+            self.listing(titles=arg in ("all", "titles"))
         elif cmd == "sql":
             self.sql()
         elif cmd in ("v", "view"):

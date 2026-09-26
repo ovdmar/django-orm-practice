@@ -48,18 +48,19 @@ with the schema beside it:
 :h help   :s solution   :hint   :v view all (q exits)   :diff   :sql   :n next   :p prev   :g N goto
 :l list   :m models   :sc schema   :lay layout   :ml multi-line (blank line runs)   :stats   :q quit
 ────────────────────────────────────────────────────────────────────────────────────
-54/86  Reverse FK   [prefetch_related]
+Exercise #54 of 86   [prefetch_related]
 ────────────────────────────────────────────────────────────────────────────────────
   Authors with pk <= 20, each with their books.   │ Author
-                                                  │   firstname lastname address zipcode
-  budget: 2 queries                               │   telephone joindate popularity_score
+                                                  │   id               AutoField(pk)
+  budget: 2 queries                               │   firstname        CharField(100)
+                                                  │   lastname         CharField(100)
+                                                  │   address          CharField(200)?
+                                                  │   zipcode          IntegerField?
+                                                  │   telephone        CharField(100)?
+                                                  │   joindate         DateField
+                                                  │   popularity_score IntegerField
                                                   │   books <- Book.author
                                                   │   +7 more relations
-                                                  │
-                                                  │ Book
-                                                  │   title genre price published_date
-                                                  │   author -> Author?
-                                                  │   +8 more relations
 
   the grader consumes your result like this:
     lambda qs: [(a.lastname, sorted(b.title for b in a.books.all())) for a in qs]

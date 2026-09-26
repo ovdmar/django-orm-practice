@@ -5,6 +5,27 @@ import textwrap
 
 FORWARD = {"ForeignKey": "->", "OneToOneField": "->1", "ManyToManyField": "<->"}
 
+SHORT = {
+    "AutoField": "Auto", "CharField": "Char", "IntegerField": "Int",
+    "PositiveIntegerField": "PosInt", "DateField": "Date", "DateTimeField": "DateTime",
+    "TextField": "Text", "BooleanField": "Bool", "DecimalField": "Decimal",
+    "FloatField": "Float",
+}
+
+
+def _type_label(field, short=False):
+    """'CharField(100)?' - the field as the model declares it."""
+    name = type(field).__name__
+    if short:
+        name = SHORT.get(name, name.removesuffix("Field"))
+    if getattr(field, "primary_key", False):
+        name += "(pk)"
+    elif getattr(field, "max_length", None):
+        name += f"({field.max_length})"
+    if getattr(field, "null", False):
+        name += "?"
+    return name
+
 
 def _models():
     from django.apps import apps
@@ -46,19 +67,15 @@ def _attnames(model):
             if f.is_relation and f.concrete and getattr(f, "attname", f.name) != f.name}
 
 
-def _scalars(model):
-    """Every non-relation field, the primary key included, with its choices."""
+def _scalars(model, short=False):
+    """[(name, type label, choices or None)] for every non-relation field."""
     out = []
     for f in model._meta.get_fields():
         if f.is_relation:
             continue
-        name = f"{f.name}(pk)" if getattr(f, "primary_key", False) else f.name
         choices = getattr(f, "choices", None)
-        if choices:
-            values = "|".join(str(value) for value, _label in choices)
-            if len(values) <= 28:
-                name = f"{name}[{values}]"
-        out.append(name)
+        values = "|".join(str(v) for v, _label in choices) if choices else None
+        out.append((f.name, _type_label(f, short), values))
     return out
 
 
@@ -80,11 +97,17 @@ def describe(model, width=40, keep=None, mark_more=True, tokens=()):
 
     `keep` limits which relations are listed (None = all of them).
     """
-    plain = _scalars(model)
+    fields = _scalars(model)
     lines = [model.__name__]
-    if plain:
-        lines += textwrap.wrap(" ".join(plain), width - 2,
-                               initial_indent="  ", subsequent_indent="  ")
+    longest_type = max((len(t) for _n, t, _c in fields), default=0)
+    longest_name = max((len(name) for name, _t, _c in fields), default=0)
+    pad = max(0, min(longest_name, width - 3 - longest_type))
+    for name, kind, choices in fields:
+        lines.append(f"  {name:<{pad}} {kind}".rstrip())
+        if choices:
+            for line in textwrap.wrap(choices, width - 4, initial_indent="    ",
+                                      subsequent_indent="    "):
+                lines.append(line)
     rels, attnames, hidden = _relations(model), _attnames(model), 0
     for name, (_, arrow) in rels.items():
         if keep is None or name in keep:
@@ -159,7 +182,8 @@ def compact(exercise, consume_src=None, width=76, limit=4):
     picked, keep, tokens = relevant(exercise, consume_src, limit)
     out = []
     for model in picked:
-        fields = _scalars(model)
+        fields = [f"{n}:{t}" + (f"[{c}]" if c else "")
+                  for n, t, c in _scalars(model, short=True)]
         all_rels, attnames = _relations(model), _attnames(model)
         rels = [_rel_label(n, attnames.get(n), a, tokens)
                 for n, (_t, a) in all_rels.items() if n in keep[model]]  # compact mode wraps
