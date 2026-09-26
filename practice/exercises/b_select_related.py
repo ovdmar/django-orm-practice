@@ -91,7 +91,7 @@ EXERCISES = [
             "columns in the SELECT list. Joining and selecting are separate decisions."),
 
     E(slug="sr-no-args", section=S, title="select_related() with no arguments",
-      prompt="The first 30 books by pk - in one query, without naming any relation.",
+      prompt="The first 30 books by pk, without naming a single relation yourself.",
       consume=lambda qs: [(b.title, b.publisher.lastname) for b in qs],
       solution="Book.objects.select_related().order_by('pk')[:30]",
       naive="Book.objects.order_by('pk')[:30]",
@@ -101,7 +101,7 @@ EXERCISES = [
 
     E(slug="sr-values-instead", section=S, title="values() as the alternative",
       prompt="The 20 cheapest books that have a price (order by price, id) as a list of dicts with the "
-             "keys 'title' and 'publisher__lastname'. No model instances, one query.",
+      "keys 'title' and 'publisher__lastname'. No model instances.",
       solution="Book.objects.filter(price__isnull=False).order_by('price', 'id')"
                ".values('title', 'publisher__lastname')[:20]",
       order_matters=True,

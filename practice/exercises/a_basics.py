@@ -53,8 +53,7 @@ EXERCISES = [
       hints=["distinct() looks at the selected columns only - so select just the one column."]),
 
     E(slug="last-signup-dates", section=S, title="Two aggregates, two tables",
-      prompt="Return {'author': <latest Author joindate>, 'publisher': <latest Publisher joindate>}. "
-             "Two tables means two queries - no more.",
+      prompt="Return {'author': <latest Author joindate>, 'publisher': <latest Publisher joindate>}.",
       solution="{'author': Author.objects.aggregate(Max('joindate'))['joindate__max'],\n"
                " 'publisher': Publisher.objects.aggregate(Max('joindate'))['joindate__max']}"),
 
@@ -83,7 +82,7 @@ EXERCISES = [
 
     E(slug="authors-and-recommender", section=S, title="Follow a FK in values_list",
       prompt="Return (firstname, recommender's firstname) tuples for every author - None where there is "
-             "no recommender. One query only.",
+      "no recommender.",
       solution="Author.objects.values_list('firstname', 'recommendedby__firstname')",
       notes="Traversing a FK inside values_list()/values() is a JOIN, so it stays one query. "
             "select_related() is for when you want the *model instances*."),
@@ -152,15 +151,14 @@ EXERCISES = [
       order_matters=True),
 
     E(slug="first-last-score-7", section=S, title="first() and last()",
-      prompt="Among authors with popularity_score == 7, return {'first': <lowest pk>, 'last': <highest pk>} "
-             "as Author objects. Two queries.",
+      prompt="Among authors with popularity_score == 7, return {'first': <lowest pk>, 'last': <highest "
+      "pk>} as Author objects.",
       solution="qs = Author.objects.filter(popularity_score=7).order_by('pk')\n"
                "{'first': qs.first(), 'last': qs.last()}"),
 
     E(slug="multi-filter-no-q", section=S, title="Four conditions, no Q",
       prompt="Authors who joined in 2012 or later, have popularity_score >= 4, joined on a day-of-month "
-             "greater than 12, and whose firstname starts with 'a' (case-insensitive). "
-             "All four conditions in one filter() call.",
+      "greater than 12, and whose firstname starts with 'a' (case-insensitive).",
       solution="Author.objects.filter(joindate__year__gte=2012, popularity_score__gte=4,\n"
                "                      joindate__day__gt=12, firstname__istartswith='a')"),
 
@@ -169,9 +167,8 @@ EXERCISES = [
       solution="Author.objects.exclude(joindate__year=2012)"),
 
     E(slug="four-aggregates", section=S, title="Aggregate bundle",
-      prompt="Return {'oldest': <min Author joindate>, 'newest': <max Author joindate>, "
-             "'avg_score': <avg popularity_score>, 'total_price': <sum of all book prices>}. "
-             "Two tables, so two queries - not four.",
+      prompt="Return {'oldest': <min Author joindate>, 'newest': <max Author joindate>, 'avg_score': "
+      "<avg popularity_score>, 'total_price': <sum of all book prices>}.",
       solution="a = Author.objects.aggregate(oldest=Min('joindate'), newest=Max('joindate'),\n"
                "                             avg_score=Avg('popularity_score'))\n"
                "{**a, 'total_price': Book.objects.aggregate(t=Sum('price'))['t']}",
@@ -182,15 +179,15 @@ EXERCISES = [
       solution="Author.objects.filter(recommendedby__isnull=True)"),
 
     E(slug="null-author-books", section=S, title="Null across a join",
-      prompt="Return {'no_author': <Book objects with no author>, 'orphan_recommender': "
-             "<Book objects that have an author, but whose author has no recommender>}. Two queries.",
+      prompt="Return {'no_author': <Book objects with no author>, 'orphan_recommender': <Book objects "
+      "that have an author, but whose author has no recommender>}.",
       solution="{'no_author': Book.objects.filter(author__isnull=True),\n"
                " 'orphan_recommender': Book.objects.filter(author__isnull=False, "
                "author__recommendedby__isnull=True)}"),
 
     E(slug="author-1-book-stats", section=S, title="Three aggregates, one query",
       prompt="For the books of author pk=1 return {'total_price': …, 'oldest': <min published_date>, "
-             "'newest': <max published_date>}. This must cost exactly ONE query.",
+      "'newest': <max published_date>}.",
       solution="Book.objects.filter(author_id=1).aggregate(total_price=Sum('price'),\n"
                "                                           oldest=Min('published_date'),\n"
                "                                           newest=Max('published_date'))",
@@ -207,8 +204,8 @@ EXERCISES = [
       solution="Book.objects.aggregate(Avg('price'))['price__avg']"),
 
     E(slug="max-publisher-score", section=S, title="Reverse FK hop",
-      prompt="Return the highest popularity_score among the publishers that published a book "
-             "for the author pk=1. One query.",
+      prompt="Return the highest popularity_score among the publishers that published a book for the "
+      "author pk=1.",
       solution="Publisher.objects.filter(books__author_id=1).aggregate(Max('popularity_score'))"
                "['popularity_score__max']"),
 
@@ -228,7 +225,7 @@ EXERCISES = [
                ".aggregate(Avg('popularity_score'))['popularity_score__avg']"),
 
     E(slug="books-of-prolific-authors", section=S, title="Subquery in a filter",
-      prompt="Fetch the Book objects whose author has written more than 10 books. One query.",
+      prompt="Fetch the Book objects whose author has written more than 10 books.",
       solution="Book.objects.filter(author__in=Author.objects.annotate(n=Count('books')).filter(n__gt=10))",
       notes="Passing a queryset to __in becomes a subquery, so it stays one round-trip."),
 
