@@ -13,4 +13,4 @@ else
     .venv/bin/python -m pip install -q -r requirements.txt
 fi
 .venv/bin/python -c "import django; print('django', django.get_version(), 'ready')"
-echo "run ./orm"
+echo "django ready"

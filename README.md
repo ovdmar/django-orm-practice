@@ -1,365 +1,88 @@
 # django-orm-practice
 
-An ORM drill you run in a terminal. It loads a seeded database into memory, hands you one
-task at a time, runs whatever query you type, and grades it twice: **did it return the right
-answer**, and **how many SQL queries did it take** compared with the reference solution.
+A Django ORM drill for the terminal. It loads a seeded database into memory, hands you one task at
+a time, runs the query you type, and grades it **twice**: did it return the right answer, and how
+many SQL queries did it cost compared with the reference solution.
 
-**Tab completes the schema as you type** — model names, attributes, `__` field paths across any
-number of relations, and a field's lookups: `Book.objects.filter(publisher__coun<TAB>`. Inside
-`select_related()` it offers only the relations it can actually join, so completion doubles as a
-check on the exercise. You also get the query plan each attempt cost, an explanation of every
-exercise, and a difficulty tag on each one.
+86 exercises, from `filter()` warm-ups to `Prefetch(to_attr=...)`, window functions and the
+`Count(distinct=True)` join-multiplication trap.
 
-86 exercises, in four sections:
+```
+:h help  tab completes fields  :s solution  :hint  :dr result  :sr sql+rows  :n next  :mode easy/medium/hard
+──────────────────────────────────────────────────────────────────────────────────────────────────────────
+Exercise #54 of 86 · easy
+──────────────────────────────────────────────────────────────────────────────────────────────────────────
+easy 9/31                          │ Author                       │ >>> Author.objects.filter(pk__lte=20)
+++~++~++~@.....................    │   id        AutoField(pk)     │ ~ correct, but 21 queries instead of 2
+                                   │   firstname CharField(100)    │ the repeated query below is the N+1
+Authors with pk <= 20, each with   │   joindate  DateField         │
+their books.                       │   books <- Book.author        │ ["Alvarez", ["Abandoned Compass II", …
+                                   │   +7 more relations           │ 20 rows in all - :dr for all of them
+budget: 2 queries                  │                               │
+                                   │ Book                         │ sql - 21 queries, 2 distinct:
+                                   │   id    AutoField(pk)         │ 1. SELECT author.id, +8 cols
+                                   │   title CharField(100)        │    WHERE author.id <= 20
+                                   │   author -> Author?           │ 2. x20 SELECT book.id, +8 cols
+                                   │   +8 more relations           │    WHERE book.author_id = 1
 
-Each exercise is tagged **easy** (31), **medium** (41) or **hard** (14), shown in its header and
-in `:l`; `./orm --level hard` starts at the first hard one. The header names the difficulty and
-nothing else — the section would tell you which method to reach for.
-
-| section | n | what it drills |
-|---|---|---|
-| `basics` | 40 | the 40 problems from the [plainenglish.io article](https://plainenglish.io/python/django-orm-examples-and-practice-problems) — filtering, ordering, aggregation, M2M writes |
-| `select_related` | 13 | forward FK, one-to-one in both directions, chains through nullable FKs, `only()` traps |
-| `prefetch_related` | 15 | reverse FK, M2M, `Prefetch(queryset=…, to_attr=…)`, nesting, through models, generic FK |
-| `advanced` | 18 | `annotate` join multiplication, `Subquery`/`OuterRef`, window functions, conditional aggregates, `update(F(...))` |
-
-## Setup
-
-```bash
-./setup.sh
+  the grader consumes your result like this:
+    lambda qs: [(a.lastname, sorted(b.title for b in a.books.all())) for a in qs]
+  try again, :hint, or :s for the solution
 ```
 
-Creates `.venv` and installs Django. (It bootstraps pip from `pip.pyz` if your system has
-no pip — no sudo needed.)
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ovdmar/django-orm-practice/main/install.sh | sh
+```
+
+Needs `git` and `python3`. It clones to `~/.local/share/django-orm-practice`, installs Django into
+a virtualenv of its own (no sudo, nothing touched outside that directory) and puts an `orm` command
+in `~/.local/bin`. Re-run it to update.
+
+Or by hand:
+
+```bash
+git clone https://github.com/ovdmar/django-orm-practice.git
+cd django-orm-practice && ./setup.sh && ./orm
+```
 
 ## Run
 
 ```bash
-./orm
+orm                        # asks which difficulty, then picks up where you left off
+orm --level hard           # practise the hard ones
+orm --from 41              # start at exercise 41
+orm --list                 # what is in it, and what you have solved
+orm --verify               # run all 86 reference solutions (the test suite)
 ```
 
-It asks which difficulty to practise and then works through that one:
+It asks which difficulty to practise, defaults to the first one with anything left, and moves on to
+the next difficulty when you finish one. Within a difficulty you get the exercises you have not
+solved first. Progress is kept in `~/.config/django-orm-practice/progress.json`.
 
-```
-  practice mode:  [1] easy 9/31   [2] medium 0/41   [3] hard 0/14   [enter = easy]
-  >
-```
+Type a query at `>>>` — every model and `Q`, `F`, `Count`, `Prefetch`, `OuterRef` … are already
+imported, and **tab completes** model names, attributes and `__` field paths. An expression runs on
+enter; for several statements keep typing and send a blank line.
 
-The default is the first difficulty that still has something left, so pressing enter keeps you
-moving: finish the easy ones and it says `easy is done - moving on to medium` and carries on from
-there. Within a difficulty you get the exercises you have **not** solved first, so a session never
-starts by re-asking what you already know. `:mode easy|medium|hard` switches at any time (to redo
-the hard ones, say), and `:g N` follows an exercise into its own difficulty.
+| | |
+|---|---|
+| `:s` / `:hint` | the reference solution and its explanation / a nudge |
+| `:dr` / `:sr` | your result in full / every query with the rows it returned |
+| `:diff` / `:err` | your answer against the reference / the traceback |
+| `:n` `:p` `:g N` | next, previous, jump — `alt+↑/↓` revisits earlier screens |
+| `:mode` `:l` `:m` | switch difficulty / list exercises / the whole schema |
+| `:h` | all of them |
 
-The task column heads with a map of where you are in the level:
+## Credit
 
-```
-easy 9/31
-++~++~++~@.....................
-```
+The models and the first 40 exercises come from
+[Django ORM — Examples and Practice Problems](https://plainenglish.io/python/django-orm-examples-and-practice-problems),
+which is where this started. The other 46 exist because that article is light on query counts:
+everything from exercise 41 on is about `select_related`, `prefetch_related` and the cost of
+getting the right answer the wrong way.
 
-`+` solved within budget, `~` solved but over it, `.` not yet, `@` you are here — in the
-exercises' own order, so it fills up left to right.
+[docs/DESIGN.md](docs/DESIGN.md) covers how the grading, the schema panel and the checks work, and
+how to add exercises.
 
-### Exercise numbers are the same for everyone
-
-`Exercise #12` is the same exercise on every clone of a given commit: numbering comes from the
-source alone, never from local state, so progress or practice mode cannot shift it. Adding an
-exercise cannot shift it either — `collect()` orders by the date each exercise was added, so a new
-one takes the next free number wherever in the files it is written, and every existing number
-stays put. `tests/test_numbering.py` holds that (it inserts a dated exercise mid-file and asserts
-nothing else moved), which is what makes "feedback on #12" actionable.
-
-Progress lives in `~/.config/django-orm-practice/progress.json` (or under `$XDG_CONFIG_HOME`),
-keyed by each exercise's slug rather than its number. That is deliberate: exercises can be
-renumbered, reordered or added and your history still lines up. Each one also records the date it
-was added, so new exercises queue up behind the ones already there.
-
-```bash
-./orm --from 41            # start at exercise 41
-./orm --level hard         # practise the hard ones, no prompt
-./orm --only 54            # drill exercise 54 alone, do not advance
-./orm --section prefetch_related
-./orm --list               # all exercises, with what you have solved
-./orm --restart            # wipe progress
-./orm --verify             # run all 86 reference solutions, print their query budgets
-```
-
-## What a turn looks like
-
-Every screen has the same three columns — the task, the schema, your attempt (the widest, on the
-right) — with one line of shortcuts above it, so nothing has to be memorised and nothing moves when an attempt lands:
-
-```
-:h help  tab completes fields  :s solution  :hint  :dr result  :sr sql+rows  :diff  :sql  :n next  :p prev  :g N goto  :l list  :m models
-────────────────────────────────────────────────────────────────────────────────────
-Exercise #54 of 86 · easy
-────────────────────────────────────────────────────────────────────────────────────
-  Authors with pk <= 20,   │ >>> ...                        │ Author
-  each with their books.   │                                │   id               AutoField(pk)
-                           │ your rows and the SQL they     │   firstname        CharField(100)
-  budget: 2 queries        │ cost appear here               │   lastname         CharField(100)
-                           │                                │   joindate         DateField
-                           │                                │   popularity_score IntegerField
-                           │                                │   books <- Book.author
-                           │                                │   +7 more relations
-
-  the grader consumes your result like this:
-    lambda qs: [(a.lastname, sorted(b.title for b in a.books.all())) for a in qs]
->>>
-```
-
-Every attempt then repaints as three columns — task, what you ran and what came back,
-schema:
-
-```
-─────────────────────────────────────────────────────────────────────────────────────────────────────
-Authors with pk <= 20, each  │ >>> Author.objects.filter(pk__lte=20)              │ Author
-with their books.            │ ~ correct, but 21 queries instead of 2             │   firstname lastname
-                             │ 20x SELECT "bookstore_book"."id", "bookstore_boo…  │   telephone joindate
-budget: 2 queries            │ that repeated shape is the N+1                     │   popularity_score
-                             │                                                    │   books <- Book.author
-                             │ ["Alvarez", ["Abandoned Compass II", "Bitter Har…  │   +7 more relations
-                             │ ["Bianchi", ["Abandoned Harvest", "Bitter Cabin …  │
-                             │ 20 rows in all - :dr for all of them                 │ Book
-  try again, :hint, or :s for the solution                                        │   title genre price
-```
-
-Once an answer is correct **and** within budget, the reference solution and an explanation of
-what the exercise was about are printed next to yours:
-
-```
-  ✓ correct, 2 queries - optimal
-
-  reference solution, 2 queries:
-    Author.objects.filter(pk__lte=20).prefetch_related('books')
-  yours, 2 queries:
-    Author.objects.filter(pk__lte=20).prefetch_related(Prefetch("books", queryset=Book.objects.all()))
-
-  select_related cannot do this: a reverse FK is multi-valued, so it needs its own query
-  (one, not one per author).
-```
-
-Every one of the 86 exercises has that explanation — the lesson rather than a restatement of the
-code — and `:s` prints it together with the reference solution, so it is there whether you solved
-it or gave up on it.
-
-Alongside it come **other ways to write the same thing**, in three flavours:
-
-```
-  also right:
-    Book.objects.values_list('title', 'published_date', named=True)
-      named=True gives row.title instead of row[0], for the same single query
-  works, but:
-    sorted(set(Publisher.objects.values_list('lastname', flat=True)))[:10]
-      one query too, but it ships every row to de-duplicate in Python
-  avoid:
-    Author.objects.filter(books__title__icontains='ab').count()
-      counts one row per matching book, so prolific authors are counted twice and more
-```
-
-147 of them, and every exercise has at least one `avoid`. They are not decoration: `./orm --verify`
-runs each one and holds it to its label — an `also right` must return the reference answer within
-the query budget, an `avoid` must actually be wrong or actually cost more. That check found five
-of my own "bad" examples were perfectly fine, including two that only looked wrong because
-SQLite's `LIKE` ignores ASCII case.
-
-(If the two match bar quoting and whitespace it just says so. This does not count as revealing
-the solution — you had already solved it. A *correct but over budget* answer deliberately does
-not print it, since the query count is still the open question; `:s` if you want it anyway.)
-
-When the answer is **wrong**, the column shows the difference instead of your rows — which rows
-are missing, which ones the reference does not have, or, when the rows match, that only the order
-is off:
-
-```
-✗ wrong answer (1 query)
-
-you returned 15 row(s), the reference has 20
-5 row(s) missing from yours:
-  ["Broken Compass", "Fischer"]
-  ["Alvarez", "Bitter Meridian"]
-  ... 2 more
-:dr for yours, :ref for the reference, :diff for both
-```
-
-Dict answers are compared key by key (`missing key(s): total_price`), scalars head to head
-(`expected: 8096 / you have: 6364`), and a wrong shape is named as such (`expected a list of 700
-row(s), you returned a number`).
-
-Everything in that column wraps rather than being cut off — rows, error messages, the SQL. A row
-that would take more than three lines is the exception: it is trimmed with `...`. Four commands open a full-screen pager (`q` leaves it): **`:dr`** for your result in full,
-**`:sr`** for every query with the rows it returned, **`:ref`** for the reference answer and
-**`:err`** for the traceback.
-
-When your snippet raises, the snippet itself is printed with the offending line marked, so you
-can see where it broke rather than reading engine frames:
-
-```
-✗ your code raised
-TypeError: ...remove() argument after * must be an iterable, not int
-
-  1 a = Author.objects.get(pk=1)
-  2 f = a.followers.order_by("id").values_list("id",
-     flat=True).first()
-> 3 a.followers.remove(*f)
-:err for the traceback
-```
-
-### Screens
-
-Each exercise takes the whole window: the screen is redrawn from the top and every screen is
-sized to fit your terminal, so nothing scrolls away mid-exercise. Because that costs you the
-scrollback, the session keeps its screens and you can step back through them:
-
-```
-alt+↑ / alt+↓      the previous / next screen of this session  (ctrl+↑ / ctrl+↓ also work)
-:b :back  :f :fwd  the same thing, typed
-```
-
-Stepping onto an older screen also makes that exercise current, so you can pick up where that
-screen left off — the footer says which exercise the prompt belongs to.
-
-**Cmd+arrows cannot be used.** macOS terminals keep Cmd for themselves and Linux window
-managers grab Super, so nothing reaches the program. Alt/Option and Ctrl do arrive. If your
-terminal sends something else, `:key` prints the escape sequence it produced and the `~/.inputrc`
-line that binds it.
-
-`:fs` turns fullscreen off if you would rather screens scrolled past each other
-(`--no-fullscreen` to start that way).
-
-### Layout
-
-`auto` picks by terminal width: three columns from 130 columns, two (result + schema) from 96,
-and below that everything stacks with the schema as one line per model. `:lay` cycles
-`auto / 3 / 2 / stack` and remembers the choice; `./orm --layout 3` forces one from the start.
-The schema column lists only the models that exercise involves and only the relations in play
-(`+N more relations` for the rest, `:m` for the whole schema); `:sc` hides it, `--no-schema`
-starts without it.
-
-### Typing answers
-
-Type a query at `>>>`. The value of the last expression in your snippet is what gets graded
-(or a variable named `answer`).
-
-* A **complete expression** runs the moment you hit enter — that covers most exercises.
-* For **several statements**, type it like a file: an assignment or an open block keeps the
-  reader collecting (dedent to close a block), and a **blank line runs the whole snippet** as
-  one measured unit. If the first line is already a complete expression, end it with a `\` or
-  open the snippet with `:ml` so it does not run early.
-
-Each submission gets a fresh namespace and is rolled back, so an answer that needs two
-statements has to arrive as one snippet.
-
-**ctrl+c** clears whatever you are typing and gives you a fresh prompt — and aborts a query of
-your own that is still running, without ending the session. To leave, use **ctrl+d**, `exit()`
-or `:q`.
-
-### Tab completion
-
-`tab` completes three things, working out which from the line you are typing:
-
-```
-Auth<TAB>                            Author, AuthorProfile
-Book.pub<TAB>                        Book.published_date, Book.publisher, Book.publisher_id
-Book.objects.values_list('pub<TAB>   published_date, publisher, publisher_id
-Book.objects.select_related('pub<TAB>  publisher          - only what it can join
-Author.objects.filter(books__reviews__rat<TAB>   books__reviews__rating
-Book.objects.filter(price__<TAB>     price__gte, price__icontains, price__isnull, ...
-```
-
-Field paths walk `__` hops through the relations, offer lookups once the path reaches a plain
-field, and are completed against the model named last in the line — so a nested
-`Prefetch('books', queryset=Book.objects.filter(...))` completes against `Book`, not the outer
-model. `select_related()` is offered only relations it can actually join, `prefetch_related()`
-any relation.
-
-### Commands
-
-The bar above each exercise lists these; `:h` prints them with descriptions and `:k` hides the
-bar (`--no-keys` starts without it).
-
-```
-:ml :multi     start a multi-statement snippet (blank line runs it)
-:s :solution   reference solution + the lesson behind it
-:hint          one hint at a time
-:dr            your result in a full-screen pager, q to leave
-:sr            every query it ran, with the rows each one returned
-:ref           the reference answer      :err  the traceback of what you ran
-:sql           the SQL your last attempt ran, inline (repeats collapsed)
-:diff          reference answer vs yours
-:n :p :g N     next / previous / jump to N
-:l :list       all exercises and your progress     :stats   progress summary
-:m :models     the whole schema                    :d :data row counts
-:sc :schema    toggle the per-exercise schema reminder
-:reset         wipe progress                       :q       quit
-```
-
-## How the grading works
-
-* Every attempt runs inside a `transaction.atomic()` block that is **always rolled back**, so
-  exercises may create/update/delete freely and the next exercise still sees pristine data.
-* Queries are counted with `CaptureQueriesContext`; `SAVEPOINT`/`RELEASE`/`COMMIT` noise is
-  filtered out, so the count is only the SQL your query actually caused.
-* The budget is not hardcoded: the reference solution is executed against the same data and
-  *its* query count is the target. Beat it and the drill says so.
-* Answers are compared after deep normalisation (models → `Model#pk`, dates → ISO, decimals
-  rounded, lists sorted unless the task says the order matters), so `values_list` order or a
-  set vs a list will not fail you — but returning dicts where tuples were asked for will.
-* `tests/test_contract_stability.py` checks that the contract shown on screen behaves exactly
-  like the consume it stands for, and that editing an exercise file under a running session does
-  not make it drift onto a neighbour's lambda. `./orm --verify` re-checks the first half for all
-  86.
-* `tests/test_screen_history.py` drives the CLI through a pty and checks alt/ctrl+arrows really
-  move between screens while plain arrows stay with readline history;
-  `tests/test_frames_fit.py` builds both screens of all 86 exercises at four terminal heights
-  and three widths and asserts none of them overflows the window.
-* `.venv/bin/python tests/test_prompt_width.py` drives the CLI through a pty and checks that
-  readline knows the true width of the coloured prompt — get that wrong and the visible cursor
-  refuses to walk back over the first few characters of your query.
-* `./orm --verify` is the test suite: every reference solution must run, return a non-empty
-  answer, and — where the exercise ships a deliberately naive variant — that variant must
-  return the *same* answer in *more* queries. That is what keeps the budgets honest.
-
-## The schema
-
-`bookstore/models.py`. `User`, `Author`, `Publisher` and `Book` are the article's models, field
-names included (`firstname`, `joindate`, `popularity_score`, `recommendedby`, `published_date`),
-so the article's problems can be solved verbatim. `Book` is the article's `Books` — both names
-work in the REPL.
-
-The rest exists to make the later sections interesting:
-
-```
-Author ──1:1── AuthorProfile          Author ──self FK── recommendedby
-Author ──M2M── User (followers)       Book ──M2M── Author (contributors)
-Publisher ──1:N── Series ──1:N── Book
-Book ──1:N── Review ──N:1── User
-Order ──1:N── OrderItem ──N:1── Book
-Store ──M2M(through StoreStock)── Book
-Tag ──1:N── TaggedItem ──GenericFK── Book | Author
-```
-
-Row counts: 700 books, 150 authors, 1200 reviews, 6217 follower links, ~12.4k rows overall.
-The data is generated from a fixed RNG seed, so the answers — and the query budgets — are the
-same on every run.
-
-## Adding exercises
-
-One entry in `practice/exercises/{a_basics,b_select_related,c_prefetch,d_advanced}.py`:
-
-```python
-E(slug="pf-author-books", section=S, title="Reverse FK",
-  prompt="Authors with pk <= 20, each with their books.",
-  consume=lambda qs: [(a.lastname, sorted(b.title for b in a.books.all())) for a in qs],
-  solution="Author.objects.filter(pk__lte=20).prefetch_related('books')",
-  naive="Author.objects.filter(pk__lte=20)",
-  hints=["..."], notes="the lesson, shown with the solution")
-```
-
-`consume` is the grader's contract and is shown to you verbatim — keep it to one line.
-`order_matters=True` if the task specifies an ordering; `mutates=True` for writes. A `setup`
-returning a dict hands the snippet names that were fetched *before* the measurement started
-(exercise 65 gets its `books` list that way), and those names are listed as `given:` above the
-task. Then run `./orm --verify` to confirm the new exercise answers something and that `naive`
-really is slower.
+MIT licensed.
