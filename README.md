@@ -36,14 +36,16 @@ budget: 2 queries                  │                               │
 curl -fsSL https://raw.githubusercontent.com/ovdmar/django-orm-practice/main/install.sh | sh
 ```
 
-Needs `git` and `python3`. It clones to `~/.local/share/django-orm-practice`, installs Django into
-a virtualenv of its own (no sudo, nothing touched outside that directory) and puts an `orm` command
-in `~/.local/bin`. Re-run it to update.
+Needs `curl`, `tar` and `python3` — no git, no sudo. It unpacks the latest
+[release](https://github.com/ovdmar/django-orm-practice/releases) into
+`~/.local/share/django-orm-practice`, installs Django into a virtualenv of its own (nothing outside
+that directory is touched) and links an `orm` command into `~/.local/bin`. Re-run it to update;
+your progress lives elsewhere and is left alone.
 
-Or by hand:
+Or download it yourself:
 
 ```bash
-git clone https://github.com/ovdmar/django-orm-practice.git
+curl -fsSL https://github.com/ovdmar/django-orm-practice/releases/latest/download/django-orm-practice.tar.gz | tar -xz
 cd django-orm-practice && ./setup.sh && ./orm
 ```
 

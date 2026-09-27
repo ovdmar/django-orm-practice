@@ -1,35 +1,32 @@
 #!/bin/sh
 # curl -fsSL https://raw.githubusercontent.com/ovdmar/django-orm-practice/main/install.sh | sh
 #
-# Clones (or updates) the drill, installs Django into a virtualenv of its own, and
-# puts an `orm` command on your PATH. Re-run it any time to update.
+# Downloads the latest release, installs Django into a virtualenv of its own, and puts
+# an `orm` command on your PATH. Needs curl, tar and python3 - no git, no sudo.
+# Re-run it any time to update; your progress lives elsewhere and is left alone.
 set -eu
 
-REPO="${ORM_REPO:-https://github.com/ovdmar/django-orm-practice.git}"
+URL="${ORM_URL:-https://github.com/ovdmar/django-orm-practice/releases/latest/download/django-orm-practice.tar.gz}"
 DIR="${ORM_DIR:-$HOME/.local/share/django-orm-practice}"
 BIN="${ORM_BIN:-$HOME/.local/bin}"
 
-for tool in git python3 curl; do
-    command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required"; exit 1; }
+for tool in curl tar python3; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required" >&2; exit 1; }
 done
 
-if [ -d "$DIR/.git" ]; then
-    echo "updating $DIR"
-    git -C "$DIR" pull --ff-only --quiet
-else
-    echo "cloning into $DIR"
-    mkdir -p "$(dirname "$DIR")"
-    git clone --quiet --depth 1 "$REPO" "$DIR"
-fi
+echo "downloading into $DIR"
+mkdir -p "$DIR"
+curl -fsSL "$URL" | tar -xzf - --strip-components=1 -C "$DIR"
 
 sh "$DIR/setup.sh"
 
 mkdir -p "$BIN"
 ln -sf "$DIR/orm" "$BIN/orm"
 
+version="$(cat "$DIR/VERSION" 2>/dev/null || echo "")"
 echo
 case ":${PATH}:" in
-    *":$BIN:"*) echo "ready - run:  orm" ;;
-    *) echo "ready - run:  $BIN/orm"
+    *":$BIN:"*) echo "${version:+$version }ready - run:  orm" ;;
+    *) echo "${version:+$version }ready - run:  $BIN/orm"
        echo "(add $BIN to your PATH and it is just 'orm')" ;;
 esac
