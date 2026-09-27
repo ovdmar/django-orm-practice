@@ -1,5 +1,6 @@
 .venv/
 .progress.json
 .history
+.history*
 __pycache__/
 *.pyc
