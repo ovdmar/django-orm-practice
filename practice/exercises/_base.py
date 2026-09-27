@@ -32,7 +32,8 @@ def consume_source(fn):
 
 @dataclass
 class Exercise:
-    slug: str
+    slug: str                     # the stable id: progress is keyed by it, so exercises
+                                  # can be renumbered or reordered without losing anything
     section: str
     title: str
     prompt: str
@@ -48,6 +49,7 @@ class Exercise:
     # here, but fragile - portability, memory, a latent bug) or "bad" (wrong or slower)
     alternatives: Sequence[tuple] = ()
     level: str = "medium"         # easy / medium / hard
+    added: str = "2026-09-26"     # when it joined the set - new ones sort last
     mutates: bool = False
     number: int = 0
 

@@ -4,23 +4,33 @@ import json
 import os
 from datetime import datetime
 
-PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".progress.json")
+def _home():
+    """~/.config/django-orm-practice, or $XDG_CONFIG_HOME if that is set."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "django-orm-practice")
+
+
+PATH = os.path.join(_home(), "progress.json")
+LEGACY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      ".progress.json")
 VERSION = 1
 
 
 def load():
-    try:
-        with open(PATH) as fh:
-            data = json.load(fh)
+    for path in (PATH, LEGACY):          # LEGACY: where it used to live, inside the checkout
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
         if data.get("version") == VERSION:
             data.setdefault("exercises", {})
             return data
-    except (OSError, ValueError):
-        pass
     return {"version": VERSION, "current": 1, "exercises": {}}
 
 
 def save(data):
+    os.makedirs(os.path.dirname(PATH), exist_ok=True)
     tmp = PATH + ".tmp"
     with open(tmp, "w") as fh:
         json.dump(data, fh, indent=1, sort_keys=True)
@@ -58,13 +68,6 @@ def set_current(data, number):
     save(data)
 
 
-def first_unsolved(data, exercises):
-    for ex in exercises:
-        if not data["exercises"].get(ex.slug, {}).get("solved"):
-            return ex.number
-    return exercises[-1].number
-
-
 def summary(data, exercises):
     solved = sum(1 for e in exercises if data["exercises"].get(e.slug, {}).get("solved"))
     clean = sum(
@@ -79,7 +82,8 @@ def summary(data, exercises):
 
 
 def reset():
-    try:
-        os.remove(PATH)
-    except OSError:
-        pass
+    for path in (PATH, LEGACY):
+        try:
+            os.remove(path)
+        except OSError:
+            pass

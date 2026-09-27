@@ -35,6 +35,8 @@ def main():
             session = Session(start=1, color=False)
             room, tallest, widest = session.screen_room(), 0, 0
             for ex in EXERCISES:
+                session.enter_level(ex.level)   # so the progress strip is measured too
+                session.current = ex
                 reference = session.reference(ex)
                 grade = engine.grade(ex, ex.solution, reference)
                 for frame in (session.build_frame(ex, None), session.build_frame(ex, grade)):

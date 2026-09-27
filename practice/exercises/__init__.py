@@ -6,6 +6,7 @@ BY_SLUG = {e.slug: e for e in EXERCISES}
 
 
 def get(number):
-    if 1 <= number <= len(EXERCISES):
+    """The exercise with that number, or None - including for a number of None."""
+    if isinstance(number, int) and 1 <= number <= len(EXERCISES):
         return EXERCISES[number - 1]
     return None

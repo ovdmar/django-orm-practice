@@ -61,12 +61,10 @@ def main():
     start = args.only or args.start
     if args.section and not start:
         start = next(e.number for e in EXERCISES if e.section == args.section)
-    if args.level and not start:
-        start = next(e.number for e in EXERCISES if e.level == args.level)
-    if start is None:
-        data = progress.load()
-        start = data.get("current") or progress.first_unsolved(data, EXERCISES)
+
     session = Session(start=start, only=args.only, color=not args.no_color)
+    if args.level:
+        session.enter_level(args.level)
     if args.no_schema:
         session.show_schema = False
     if args.no_keys:

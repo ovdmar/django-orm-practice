@@ -24,6 +24,7 @@ COMMANDS = """
   :hint          one hint at a time
   :n :next       next exercise            :p :prev      previous exercise
   :g N :goto N   jump to exercise N       :l :list      list all exercises
+  :mode          switch practice mode - :mode easy | medium | hard
   :dr            your result in a full-screen pager (q to leave)
   :sr            every query it ran, with the rows each one returned
   :ref           the reference answer       :err  the traceback of what you ran
@@ -48,7 +49,8 @@ Frame = collections.namedtuple("Frame", "number lines")
 KEYS = [                      # in priority order: the tail is dropped if it will not fit
     (":h", "help"), ("tab", "completes fields"), (":s", "solution"), (":hint", ""),
     (":dr", "result"), (":sr", "sql+rows"), (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"),
-    (":g N", "goto"), (":l", "list"), (":m", "models"), ("alt+up/dn", "screens"),
+    (":g N", "goto"), (":mode", "easy/medium/hard"), (":l", "list"), (":m", "models"),
+    ("alt+up/dn", "screens"),
     ("^c", "clear"), ("^d", "quit"), (":ml", "multi-line"), (":stats", ""),
     (":sc", "schema"), (":fs", "fullscreen"), (":k", "keys"),
 ]
@@ -82,6 +84,7 @@ class Session:
         self.ink = Ink(color and sys.stdout.isatty() and os.environ.get("NO_COLOR") is None)
         self.data = progress.load()
         self.only = only
+        self.asked_for = start        # an exercise named on the command line, or None
         self.number = start or self.data.get("current") or 1
         self.refs = {}          # slug -> reference Attempt
         self.last = None        # last graded Attempt
@@ -96,11 +99,73 @@ class Session:
         self.frame_at = None      # None = looking at the latest one
         self.current = None
         self.completer = None
+        self.level = None         # the practice mode: easy, then medium, then hard
+        self.queue = []           # that level's exercises, the unsolved ones first
 
     def level_ink(self, ex):
+        return self.level_ink_name(ex.level)
+
+    # -- practice mode ------------------------------------------------------ #
+    def solved(self, ex):
+        return bool(self.data["exercises"].get(ex.slug, {}).get("solved"))
+
+    def enter_level(self, level):
+        """Line up a difficulty: what you have not solved yet, then the rest.
+
+        Ordered by the date an exercise was added and then by number, so exercises
+        written later queue up behind the ones already there.
+        """
+        self.level = level
+        self.data["level"] = level
+        order = sorted((ex for ex in EXERCISES if ex.level == level),
+                       key=lambda ex: (ex.added, ex.number))
+        self.queue = [ex for ex in order if not self.solved(ex)] + \
+                     [ex for ex in order if self.solved(ex)]
+        progress.save(self.data)
+        return self.queue
+
+    def next_level(self):
+        """The first level that still has something unsolved, else None."""
+        for level in LEVELS:
+            if any(ex.level == level and not self.solved(ex) for ex in EXERCISES):
+                return level
+        return None
+
+    def ahead(self, unsolved_only=False):
+        """The exercise after the current one in this level's queue."""
+        if self.current not in self.queue:
+            return None
+        rest = self.queue[self.queue.index(self.current) + 1:]
+        if unsolved_only:
+            rest = [ex for ex in rest if not self.solved(ex)]
+        return rest[0] if rest else None
+
+    def strip(self, width):
+        """A map of the level: one mark per exercise, in their own order.
+
+        The queue puts what you have not solved first - that is the path through.
+        This is the map, so it stays in the exercises' own order and fills up
+        left to right as you go.
+        """
+        ink, marks = self.ink, []
+        for ex in sorted(self.queue, key=lambda ex: (ex.added, ex.number)):
+            done = self.data["exercises"].get(ex.slug, {})
+            if ex is self.current:
+                marks.append(ink.bold("@"))
+            elif not done.get("solved"):
+                marks.append(ink.dim("."))
+            else:
+                best, target = done.get("best_queries"), done.get("target")
+                within = best is not None and target is not None and best <= target
+                marks.append(ink.green("+") if within else ink.yellow("~"))
+        solved = sum(1 for ex in self.queue if self.solved(ex))
+        return [self.level_ink_name(self.level) + ink.dim(f" {solved}/{len(self.queue)}"),
+                "".join(marks)[:width * 4]]
+
+    def level_ink_name(self, level):
         colour = {"easy": self.ink.green, "medium": self.ink.yellow,
-                  "hard": self.ink.red}.get(ex.level, self.ink.dim)
-        return colour(ex.level)
+                  "hard": self.ink.red}.get(level, self.ink.dim)
+        return colour(level)
 
     def revealed(self, ex):
         """Has the name of the technique stopped being a spoiler?"""
@@ -178,6 +243,9 @@ class Session:
     # -- cell contents ----------------------------------------------------- #
     def _task_cell(self, ex, ref, width):
         out = []
+        if self.queue:
+            out += [(line, None) for line in self.strip(width)]
+            out.append(("", None))
         if ref.given:
             out.append((f"given: {', '.join(ref.given)}", self.ink.dim))
             out.append(("", None))
@@ -731,6 +799,44 @@ class Session:
             print(ink.bold("  " + line) if line and not line.startswith(" ") else ink.dim("  " + line))
 
     # -- the loop ---------------------------------------------------------- #
+    def choose_level(self, asked=None):
+        """Ask which difficulty to practise; default the first with anything left."""
+        ink = self.ink
+        suggested = asked or self.next_level() or self.data.get("level") or LEVELS[0]
+        if asked is None and sys.stdin.isatty() and self.asked_for is None:
+            counts = []
+            for i, level in enumerate(LEVELS, 1):
+                exs = [ex for ex in EXERCISES if ex.level == level]
+                left = sum(1 for ex in exs if not self.solved(ex))
+                counts.append(f"[{i}] {self.level_ink_name(level)}"
+                              + ink.dim(f" {len(exs) - left}/{len(exs)}"))
+            print("  practice mode:  " + "   ".join(counts)
+                  + ink.dim(f"   [enter = {suggested}]"))
+            try:
+                answer = input(ink.rl("36", "  > ")).strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = ""
+            for i, level in enumerate(LEVELS, 1):
+                if answer in (str(i), level, level[0]):
+                    suggested = level
+        self.enter_level(suggested)
+        return suggested
+
+    def advance(self):
+        """Move on after a pass: the next unsolved here, else the next difficulty."""
+        nxt = self.ahead(unsolved_only=True)
+        if nxt is not None:
+            return nxt
+        level = self.next_level()
+        if level is None:
+            return None
+        if level != self.level:
+            print(self.ink.bold(f"\n  {self.level} is done - moving on to {level}"))
+            self.enter_level(level)
+        else:                      # something earlier in this level is still open
+            self.enter_level(level)
+        return next((ex for ex in self.queue if not self.solved(ex)), None)
+
     def run(self):
         try:
             readline.read_history_file(HISTORY)
@@ -748,8 +854,15 @@ class Session:
         print(ink.dim("  tab completes model names, fields, ") +
               ink.bold("field paths") + ink.dim(" and lookups - "
               "Book.objects.filter(publisher__coun") + ink.bold("<tab>"))
-        self.current = get(self.number) or EXERCISES[0]
+        if self.level is None:
+            self.choose_level()
+        self.current = get(self.asked_for) or get(self.data.get("current"))
+        if self.current is None or (self.queue and self.current not in self.queue):
+            # where you left off, if it belongs to this mode; otherwise its first gap
+            self.current = next((ex for ex in self.queue if not self.solved(ex)),
+                                self.queue[0] if self.queue else EXERCISES[0])
         self.hint_at = 0
+        progress.set_current(self.data, self.current.number)
         self.show(self.current)
         cancelled = 0
         while True:
@@ -777,6 +890,8 @@ class Session:
                     if target is None:
                         print(f"  no exercise {nxt}")
                         continue
+                    if target.level != self.level:
+                        self.enter_level(target.level)
                     self.current = target
                     self.hint_at, self.last = 0, None
                     progress.set_current(self.data, self.current.number)
@@ -791,9 +906,9 @@ class Session:
             progress.record_attempt(self.data, self.current, grade)
             self.paint(self.current, grade)
             if grade.ok and self.only is None:
-                nxt = get(self.current.number + 1)
+                nxt = self.advance()
                 if nxt is None:
-                    print(ink.bold("\n  that was the last one. :stats to see how it went."))
+                    print(ink.bold("\n  every exercise solved. :stats to see how it went."))
                     continue
                 print(ink.dim("  [enter] next exercise, or keep working on this one"))
                 try:
@@ -883,9 +998,21 @@ class Session:
                 print(self.ink.yellow(f"  hint: {ex.hints[self.hint_at]}"))
                 self.hint_at += 1
         elif cmd in ("n", "next", "skip"):
-            return ex.number + 1
+            nxt = self.ahead()
+            return nxt.number if nxt else ex.number
         elif cmd in ("p", "prev"):
-            return max(1, ex.number - 1)
+            if ex in self.queue and self.queue.index(ex):
+                return self.queue[self.queue.index(ex) - 1].number
+            return ex.number
+        elif cmd in ("mode", "level"):
+            if arg in LEVELS:
+                self.choose_level(arg)
+            elif arg is None:
+                self.choose_level(self.next_level() or LEVELS[0])
+            else:
+                print(f"  :mode easy | medium | hard   (now: {self.level})")
+                return None
+            return self.queue[0].number if self.queue else None
         elif cmd in ("g", "goto"):
             if arg and arg.isdigit():
                 return int(arg)
