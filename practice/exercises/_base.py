@@ -44,6 +44,9 @@ class Exercise:
     setup: Optional[Callable] = None   # returns names to hand the snippet, unmeasured
     notes: str = ""               # the lesson, shown together with the solution
     contract: str = ""            # consume's source, filled in at import
+    # (kind, code, why) where kind is "good" (right and idiomatic), "careful" (right
+    # here, but fragile - portability, memory, a latent bug) or "bad" (wrong or slower)
+    alternatives: Sequence[tuple] = ()
     level: str = "medium"         # easy / medium / hard
     mutates: bool = False
     number: int = 0

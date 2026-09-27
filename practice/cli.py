@@ -433,7 +433,7 @@ class Session:
 
         # everything below the columns, built first so its height is known
         BODY_MIN = 6
-        shown, compared, explained, guidance = [], [], [], []
+        shown, compared, explained, others, guidance = [], [], [], [], []
         if contract:            # on every screen: it is what decides the query count
             shown.append("")
             shown.append(ink.dim("  the grader consumes your result like this:"))
@@ -446,6 +446,7 @@ class Session:
             if ex.notes:
                 explained = [""] + [ink.dim(part) for part
                                     in self._soft(" ".join(ex.notes.split()), width)]
+            others = self.alternatives(ex, width)
         if grade is not None and not (grade.optimal or grade.better):
             guidance.append(ink.dim("  try again, :hint, or :s for the solution"))
 
@@ -453,15 +454,16 @@ class Session:
         # keystroke away give up their space first
         room = self.screen_room()
         squeezed = False
-        for expendable in (explained, compared):
+        for expendable in (others, explained, compared):
+            notice = 1 if squeezed else 0        # the ':s' line that replaces them
             if len(head) + BODY_MIN + len(shown) + len(compared) + len(explained) \
-                    + len(guidance) <= room:
+                    + len(others) + len(guidance) + notice <= room:
                 break
             expendable.clear()
             squeezed = True
         if squeezed:
             guidance.append(ink.dim("  :s for the solution and the explanation"))
-        tail = shown + compared + explained + guidance
+        tail = shown + compared + explained + others + guidance
 
         body_room = max(BODY_MIN, room - len(head) - len(tail))
 
@@ -579,6 +581,21 @@ class Session:
             out += self._soft(line, width, "    ", "      ")
         return out
 
+    def alternatives(self, ex, width):
+        """Other ways it can be written - and ways it should not be."""
+        if not ex.alternatives:
+            return []
+        ink, out = self.ink, [""]
+        for kind, code, why in ex.alternatives:
+            label, colour = {"good": ("also right:", ink.green),
+                             "careful": ("works, but:", ink.yellow),
+                             "bad": ("avoid:", ink.red)}[kind]
+            out.append(colour(f"  {label}"))
+            for line in code.split("\n"):
+                out += self._soft(line, width, "    ", "      ")
+            out += [ink.dim(part) for part in self._soft(why, width, "      ", "      ")]
+        return out
+
     def solution(self, ex):
         ink, ref = self.ink, self.reference(ex)
         width = min(shutil.get_terminal_size((80, 24)).columns, 110)
@@ -593,6 +610,8 @@ class Session:
             print()
             for piece in self._soft(" ".join(ex.notes.split()), width, "    "):
                 print(ink.dim(piece))
+        for line in self.alternatives(ex, width):
+            print(line)
 
     def diff(self, ex):
         ink, ref = self.ink, self.reference(ex)

@@ -109,6 +109,26 @@ Every one of the 86 exercises has that explanation — the lesson rather than a 
 code — and `:s` prints it together with the reference solution, so it is there whether you solved
 it or gave up on it.
 
+Alongside it come **other ways to write the same thing**, in three flavours:
+
+```
+  also right:
+    Book.objects.values_list('title', 'published_date', named=True)
+      named=True gives row.title instead of row[0], for the same single query
+  works, but:
+    sorted(set(Publisher.objects.values_list('lastname', flat=True)))[:10]
+      one query too, but it ships every row to de-duplicate in Python
+  avoid:
+    Author.objects.filter(books__title__icontains='ab').count()
+      counts one row per matching book, so prolific authors are counted twice and more
+```
+
+147 of them, and every exercise has at least one `avoid`. They are not decoration: `./orm --verify`
+runs each one and holds it to its label — an `also right` must return the reference answer within
+the query budget, an `avoid` must actually be wrong or actually cost more. That check found five
+of my own "bad" examples were perfectly fine, including two that only looked wrong because
+SQLite's `LIKE` ignores ASCII case.
+
 (If the two match bar quoting and whitespace it just says so. This does not count as revealing
 the solution — you had already solved it. A *correct but over budget* answer deliberately does
 not print it, since the query count is still the open question; `:s` if you want it anyway.)
