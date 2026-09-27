@@ -204,11 +204,11 @@ class Session:
             out += [(piece, style) for piece in pieces]
         return out
 
-    def _rows_block(self, value, width, room, per_row=3):
-        """As many wrapped rows as `room` allows. Returns (lines, shown, total)."""
+    def _rows_block(self, value, width, room, per_row=3, max_rows=4):
+        """Up to `max_rows` wrapped rows, inside `room` lines. (lines, shown, total)."""
         texts, total = engine.row_texts(value)
         out, shown = [], 0
-        for text in texts:
+        for text in texts[:max_rows]:
             pieces = textwrap.wrap(text, max(20, width), subsequent_indent="   ") or [""]
             if len(pieces) > per_row:
                 pieces = pieces[:per_row]
@@ -227,9 +227,24 @@ class Session:
             lines[-1] += " ..."
         return lines
 
+    def _response_lines(self, sql, width, rows=2):
+        """What the database handed back: header, a couple of rows, the count.
+
+        Clipped rather than wrapped - a wrapped table is unreadable - so these lines
+        may reach the column edge and get their ellipsis from the grid.
+        """
+        columns, data = engine.sample_rows(sql)
+        if not columns:
+            return []
+        out = [("   " + " | ".join(columns), self.ink.dim)]
+        out += [("   " + " | ".join(engine.cell(value) for value in row), None)
+                for row in data[:rows]]
+        out.append((f"   {len(data)} row(s) back - :v sql for all", self.ink.dim))
+        return out
+
     def _sql_lines(self, att, width, room=10):
         """The SQL the attempt ran: one clause per line, inside `room` lines."""
-        if not att.queries or room < 4:
+        if not att.queries or room < 3:
             return []
         dim = self.ink.dim
         shapes = att.shapes()
@@ -238,29 +253,38 @@ class Session:
         if len(shapes) != len(att.queries):
             head += f", {len(shapes)} distinct"
         out = [("", None), (head + ":", dim)]
-        budget, shown = room - 3, 0          # the blank, the header, the footer
+        if att.wrote:
+            out.append(("rows not replayed - this attempt wrote to the database", dim))
+        footer = room >= 5
+        budget, shown = room - 2 - (1 if footer else 0), 0   # blank, header, footer
         left = len(shapes)
         for i, (sql, repeats) in enumerate(shapes, 1):
-            if budget < 2:
+            if budget < 3:
                 break
+            share = max(3, budget // left)
             prefix = f"{i}. " + (f"x{repeats} " if repeats > 1 else "")
-            lines = engine.wrap_sql(engine.shorten_sql(sql, width), width, prefix=prefix)
-            lines = engine.pick_clauses(lines, max(2, budget // left))
-            out += [(line, dim) for line in lines]
-            budget -= len(lines)
+            response = [] if att.wrote else self._response_lines(sql, width)
+            room_for_rows = min(len(response), max(0, share - 2), 4)
+            clauses = engine.pick_clauses(
+                engine.wrap_sql(engine.shorten_sql(sql, width - 6), width, prefix=prefix),
+                max(1, share - room_for_rows))
+            block = [(line, dim) for line in clauses] + response[:room_for_rows]
+            out += block
+            budget -= len(block)
             left -= 1
             shown += 1
-        if shown < len(shapes):
-            out.append((f"... {len(shapes) - shown} more - :v sql for all of it", dim))
-        else:
-            out.append((":v sql for the exact text", dim))
+        if footer:
+            out.append((f"... {len(shapes) - shown} more - :v sql for all of it", dim)
+                       if shown < len(shapes) else (":v sql for the exact text", dim))
         return out
 
-    def _result_cell(self, ex, grade, width, room=24):
-        """Your query, the verdict, the rows and the SQL - all wrapped to the column.
+    ROWS_SHOWN = 4               # enough to recognise the answer; :v rows has the rest
 
-        The SQL is sized first and the rows take what is left: a row you cannot see
-        is a smaller loss than the query that explains the count.
+    def _result_cell(self, ex, grade, width, room=24):
+        """Your query, the verdict, a few rows, and the SQL - wrapped to the column.
+
+        The rows are capped at ROWS_SHOWN: past the first few they stop telling you
+        anything (':v rows' has them all), and the space is worth more to the SQL.
         """
         ink = self.ink
         if grade is None:
@@ -268,14 +292,14 @@ class Session:
                 [(">>> ...", ink.dim), ("", None),
                  ("your rows and the SQL they cost appear here", ink.dim)], width)
         att = grade.attempt
-        sql = self._sql_lines(att, width, max(4, min(room - 8, 18)))
         echo = [(f">>> {line}", ink.dim) for line in att.code.split("\n")[:3]]
 
         if att.shape_error:
             head = echo + [("✗ the grader cannot read what you returned", ink.red),
                            (f"you returned {att.raw}", ink.dim),
                            (att.error.split("\n")[-1], None)]
-            return self._wrap_items(head, width) + sql
+            return (self._wrap_items(head, width)
+                    + self._sql_lines(att, width, max(0, room - len(head) - 1)))
         if att.error:
             # the marked-up snippet stands in for the plain echo
             head = [("✗ your code raised", ink.red)]
@@ -289,7 +313,8 @@ class Session:
                              ink.red if hit else ink.dim))
             if att.traceback:
                 head.append((":v err for the traceback", ink.dim))
-            return self._wrap_items(head, width) + sql
+            head = self._wrap_items(head, width)
+            return head + self._sql_lines(att, width, max(0, room - len(head) - 1))
 
         plural = "query" if grade.nqueries == 1 else "queries"
         head = list(echo)
@@ -306,19 +331,23 @@ class Session:
         if grade.ok and not grade.optimal and att.repeated_shapes():
             head.append(("the repeated query below is the N+1", ink.dim))
         head = self._wrap_items(head, width)
+        # divide what is left so that nothing has to be chopped off the end
+        left = max(0, room - len(head) - 2)
 
         if not grade.ok:
             # the diff is more use than your rows here, so it takes their place
             report = engine.diff_report(att.value, self.reference(ex).value, ex.order_matters)
             body = self._wrap_items(
                 [(text, ink.dim if text.startswith("  ") else ink.yellow) for text in report],
-                width)[:max(2, room - len(head) - len(sql) - 3)]
+                width)[:min(10, max(2, left - 2))]
+            sql = self._sql_lines(att, width, max(0, left - len(body) - 1))
             return (head + [("", None)] + body
                     + self._wrap_items([(":v rows for yours, :v ref for the reference, "
                                          ":diff for both", ink.dim)], width) + sql)
 
         rows, shown, total = self._rows_block(
-            att.value, width, max(2, room - len(head) - len(sql) - 2))
+            att.value, width, min(10, max(2, left // 2)), max_rows=self.ROWS_SHOWN)
+        sql = self._sql_lines(att, width, max(0, left - len(rows)))
         out = head + [("", None)] + [(row, None) for row in rows]
         if total > shown:
             out += self._wrap_items(
@@ -596,8 +625,19 @@ class Session:
             if self.last is None:
                 print("  nothing run yet")
                 return
-            body = "\n\n".join(f"{i:>3}. [{q['time']}s] {q['sql']}"
-                                for i, q in enumerate(self.last.queries, 1))
+            blocks = []
+            for i, query in enumerate(self.last.queries, 1):
+                columns, data = ((None, []) if self.last.wrote
+                                 else engine.sample_rows(query["sql"]))
+                block = [f"{i:>3}. [{query['time']}s] {query['sql']}"]
+                if columns:
+                    block.append("     " + " | ".join(columns))
+                    block += ["     " + " | ".join(engine.cell(v) for v in row)
+                              for row in data[:100]]
+                    block.append(f"     ({len(data)} row(s)"
+                                 f"{', first 100 shown' if len(data) > 100 else ''})")
+                blocks.append("\n".join(block))
+            body = "\n\n".join(blocks)
             pager.page(body or "no queries at all",
                        f"exact SQL - {self._queries(len(self.last.queries))} "
                        f"from your last attempt")
@@ -651,7 +691,8 @@ class Session:
         width = min(shutil.get_terminal_size((80, 24)).columns, 120) - 4
         for i, (sql, repeats) in enumerate(self.last.shapes()[:limit], 1):
             prefix = f"{i}. " + (f"x{repeats} " if repeats > 1 else "")
-            for line in engine.wrap_sql(engine.shorten_sql(sql, width), width, prefix=prefix):
+            for line in engine.wrap_sql(engine.shorten_sql(sql, width - 6), width,
+                                        prefix=prefix):
                 print(self.ink.dim("  " + line))
         extra = len(self.last.shapes()) - limit
         if extra > 0:

@@ -153,6 +153,7 @@ def pick_clauses(lines, keep):
 
 
 ANSWER = "<answer>"          # the filename your snippet is compiled under
+READ_ONLY = re.compile(r"\s*(SELECT|WITH)\b", re.I)
 
 TXN_NOISE = re.compile(r"^\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b", re.I)
 
@@ -296,6 +297,15 @@ class Attempt:
     @property
     def nqueries(self):
         return len(self.queries)
+
+    @property
+    def wrote(self):
+        """Did this attempt change anything? Then replaying its reads would lie.
+
+        The attempt runs inside a rolled-back transaction, so a SELECT replayed
+        afterwards no longer sees the writes that preceded it.
+        """
+        return any(not READ_ONLY.match(query["sql"]) for query in self.queries)
 
     def shape_counts(self):
         shapes = {}
@@ -497,6 +507,33 @@ def diff_report(mine, reference, order_matters=False, limit=3):
     if type(mine) is not type(reference):
         return [f"expected {_shape_name(reference)}, you returned {_shape_name(mine)}"]
     return [f"expected:  {_key(reference)}", f"you have:  {_key(mine)}"]
+
+
+def sample_rows(sql, cap=1000):
+    """Re-run a read-only statement and return (column names, rows).
+
+    The debug cursor's SQL already has its parameters inlined, so it can be replayed
+    as-is. Writes are never replayed, and this runs after the measurement has ended,
+    so it costs the attempt nothing.
+    """
+    if not READ_ONLY.match(sql):
+        return None, []
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql)
+            columns = [column[0] for column in cursor.description or []]
+            rows = cursor.fetchmany(cap)
+    except Exception:
+        return None, []
+    return columns, rows
+
+
+def cell(value):
+    """One value of a result row, short enough for a column."""
+    if value is None:
+        return "NULL"
+    text = str(value)
+    return text if len(text) <= 24 else text[:23] + "…"
 
 
 def row_texts(value, limit=60):
