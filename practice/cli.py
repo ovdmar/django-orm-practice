@@ -24,10 +24,10 @@ COMMANDS = """
   :hint          one hint at a time
   :n :next       next exercise            :p :prev      previous exercise
   :g N :goto N   jump to exercise N       :l :list      list all exercises
-  :v rows        your answer in a full-screen pager (q to leave)
-                 :v ref  the reference answer      :v sql  every query it ran
-                 :v err  the full traceback of what your code raised
-  :sql           the SQL your last attempt actually ran
+  :dr            your result in a full-screen pager (q to leave)
+  :sr            every query it ran, with the rows each one returned
+  :ref           the reference answer       :err  the traceback of what you ran
+  :sql           the same queries inline, shortened
   :diff          reference answer vs yours, for the last attempt
   :d :data       row counts in the database
   :m :models     the whole schema      :sc :schema  toggle the schema reminder
@@ -47,7 +47,7 @@ Frame = collections.namedtuple("Frame", "number lines")
 
 KEYS = [                      # in priority order: the tail is dropped if it will not fit
     (":h", "help"), ("tab", "completes fields"), (":s", "solution"), (":hint", ""),
-    (":v", "rows"), (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"),
+    (":dr", "result"), (":sr", "sql+rows"), (":diff", ""), (":sql", ""), (":n", "next"), (":p", "prev"),
     (":g N", "goto"), (":l", "list"), (":m", "models"), ("alt+up/dn", "screens"),
     ("^c", "clear"), ("^d", "quit"), (":ml", "multi-line"), (":stats", ""),
     (":sc", "schema"), (":fs", "fullscreen"), (":k", "keys"),
@@ -239,7 +239,7 @@ class Session:
         out = [("   " + " | ".join(columns), self.ink.dim)]
         out += [("   " + " | ".join(engine.cell(value) for value in row), None)
                 for row in data[:rows]]
-        out.append((f"   {len(data)} row(s) back - :v sql for all", self.ink.dim))
+        out.append((f"   {len(data)} row(s) back - :sr for all", self.ink.dim))
         return out
 
     def _sql_lines(self, att, width, room=10):
@@ -279,17 +279,17 @@ class Session:
             left -= 1
             shown += 1
         if footer:
-            out.append((f"... {len(shapes) - shown} more - :v sql for all of it", dim)
-                       if shown < len(shapes) else (":v sql for the exact text", dim))
+            out.append((f"... {len(shapes) - shown} more - :sr for all of it", dim)
+                       if shown < len(shapes) else (":sr for the exact text", dim))
         return out
 
-    ROWS_SHOWN = 4               # enough to recognise the answer; :v rows has the rest
+    ROWS_SHOWN = 4               # enough to recognise the answer; :dr has the rest
 
     def _result_cell(self, ex, grade, width, room=24):
         """Your query, the verdict, a few rows, and the SQL - wrapped to the column.
 
         The rows are capped at ROWS_SHOWN: past the first few they stop telling you
-        anything (':v rows' has them all), and the space is worth more to the SQL.
+        anything (':dr' has them all), and the space is worth more to the SQL.
         """
         ink = self.ink
         if grade is None:
@@ -317,7 +317,7 @@ class Session:
                 head.append((("> " if hit else "  ") + (f"{number} " if numbered else "") + text,
                              ink.red if hit else ink.dim))
             if att.traceback:
-                head.append((":v err for the traceback", ink.dim))
+                head.append((":err for the traceback", ink.dim))
             head = self._wrap_items(head, width)
             return head + self._sql_lines(att, width, max(0, room - len(head) - 1))
 
@@ -347,7 +347,7 @@ class Session:
                 width)[:min(10, max(2, left - 2))]
             sql = self._sql_lines(att, width, max(0, left - len(body) - 1))
             return (head + [("", None)] + body
-                    + self._wrap_items([(":v rows for yours, :v ref for the reference, "
+                    + self._wrap_items([(":dr for yours, :ref for the reference, "
                                          ":diff for both", ink.dim)], width) + sql)
 
         rows, shown, total = self._rows_block(
@@ -356,7 +356,7 @@ class Session:
         out = head + [("", None)] + [(row, None) for row in rows]
         if total > shown:
             out += self._wrap_items(
-                [(f"{total} rows in all - :v rows to see them", ink.dim)], width)
+                [(f"{total} rows in all - :dr for all of them", ink.dim)], width)
         return out + sql
 
 
@@ -401,7 +401,7 @@ class Session:
             print(line)
         hidden = len(lines) - len(lines[:room])
         if hidden:
-            print(ink.dim(f"  ... {hidden} line(s) did not fit - :v rows for the answer, "
+            print(ink.dim(f"  ... {hidden} line(s) did not fit - :dr for the answer, "
                           f":m for the schema"))
         if note:
             print(ink.dim(note))
@@ -474,7 +474,7 @@ class Session:
             else:
                 cell = self._result_cell(ex, grade, w, body_room)
             if len(cell) > body_room:
-                cell = cell[:body_room - 1] + [("... :v rows / :m for the rest", ink.dim)]
+                cell = cell[:body_room - 1] + [("... :dr / :m for the rest", ink.dim)]
             cells[name] = cell
         body = self._grid(cells, plan)
         return head + body + tail
@@ -606,16 +606,12 @@ class Session:
     def _queries(n):
         return f"{n} quer{'y' if n == 1 else 'ies'}"
 
-    VIEWS = {"rows": ("rows", "mine", "answer", ""), "ref": ("ref", "reference", "solution"),
-             "sql": ("sql", "queries"), "err": ("err", "error", "traceback", "tb")}
+    def view(self, ex, what):
+        """Full-screen preview of one thing; the pager exits on q.
 
-    def view(self, ex, what=None):
-        """Full-screen preview - :v rows / :v ref / :v sql / :v err. q leaves it."""
-        asked = (what or "").lower()
-        what = next((name for name, aliases in self.VIEWS.items() if asked in aliases), None)
-        if what is None:
-            print(f"  :v {asked}? one of :v rows, :v ref, :v sql, :v err")
-            return
+        :dr your result, :sr the SQL with what it returned, :ref the reference
+        answer, :err the traceback.
+        """
         if what == "ref":
             ref = self.reference(ex)
             pager.page(engine.dumps(ref.value),
@@ -626,7 +622,7 @@ class Session:
                 print("  no traceback - nothing raised")
             else:
                 pager.page(self.last.traceback, f"traceback - {self.label(ex)}")
-        elif what == "sql":
+        elif what == "sr":
             if self.last is None:
                 print("  nothing run yet")
                 return
@@ -644,7 +640,7 @@ class Session:
                 blocks.append("\n".join(block))
             body = "\n\n".join(blocks)
             pager.page(body or "no queries at all",
-                       f"exact SQL - {self._queries(len(self.last.queries))} "
+                       f"sql and rows - {self._queries(len(self.last.queries))} "
                        f"from your last attempt")
         elif self.last is None or self.last.error:
             print("  no rows to view - run a query first")
@@ -702,7 +698,7 @@ class Session:
         extra = len(self.last.shapes()) - limit
         if extra > 0:
             print(self.ink.dim(f"  ... {extra} more shape(s)"))
-        print(self.ink.dim("  (names shortened; :v sql has the exact text)"))
+        print(self.ink.dim("  (names shortened; :sr has the exact text and the rows)"))
 
     def data_summary(self):
         from practice import seed  # noqa: F401
@@ -879,8 +875,17 @@ class Session:
             self.listing(titles=arg in ("all", "titles"))
         elif cmd == "sql":
             self.sql()
+        elif cmd in ("dr", "result"):
+            self.view(ex, "dr")
+        elif cmd in ("sr", "sqlrows"):
+            self.view(ex, "sr")
+        elif cmd in ("ref", "reference"):
+            self.view(ex, "ref")
+        elif cmd in ("err", "error", "traceback"):
+            self.view(ex, "err")
         elif cmd in ("v", "view"):
-            self.view(ex, arg)
+            print("  :v is now four commands - :dr your result, :sr sql and its rows, "
+                  ":ref the reference, :err the traceback")
         elif cmd in ("back", "b"):
             self.browse(-1)
         elif cmd in ("fwd", "forward", "f"):

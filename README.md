@@ -86,7 +86,7 @@ budget: 2 queries            │ that repeated shape is the N+1                 
                              │                                                    │   books <- Book.author
                              │ ["Alvarez", ["Abandoned Compass II", "Bitter Har…  │   +7 more relations
                              │ ["Bianchi", ["Abandoned Harvest", "Bitter Cabin …  │
-                             │ 20 rows in all - :v rows to see them                 │ Book
+                             │ 20 rows in all - :dr for all of them                 │ Book
   try again, :hint, or :s for the solution                                        │   title genre price
 ```
 
@@ -125,7 +125,7 @@ you returned 15 row(s), the reference has 20
   ["Broken Compass", "Fischer"]
   ["Alvarez", "Bitter Meridian"]
   ... 2 more
-:v rows for yours, :v ref for the reference, :diff for both
+:dr for yours, :ref for the reference, :diff for both
 ```
 
 Dict answers are compared key by key (`missing key(s): total_price`), scalars head to head
@@ -133,9 +133,9 @@ Dict answers are compared key by key (`missing key(s): total_price`), scalars he
 row(s), you returned a number`).
 
 Everything in that column wraps rather than being cut off — rows, error messages, the SQL. A row
-that would take more than three lines is the exception: it is trimmed with `...`. `:v rows` opens the
-whole answer in a full-screen pager (`q` leaves it), `:v ref` does the same for the reference
-answer, `:v sql` for every query the attempt ran, and `:v err` for the full traceback.
+that would take more than three lines is the exception: it is trimmed with `...`. Four commands open a full-screen pager (`q` leaves it): **`:dr`** for your result in full,
+**`:sr`** for every query with the rows it returned, **`:ref`** for the reference answer and
+**`:err`** for the traceback.
 
 When your snippet raises, the snippet itself is printed with the offending line marked, so you
 can see where it broke rather than reading engine frames:
@@ -228,9 +228,9 @@ bar (`--no-keys` starts without it).
 :ml :multi     start a multi-statement snippet (blank line runs it)
 :s :solution   reference solution + the lesson behind it
 :hint          one hint at a time
-:v rows        your answer in a full-screen pager, q to leave
-               :v ref  the reference answer    :v sql  every query it ran
-               :v err  the traceback of what your code raised
+:dr            your result in a full-screen pager, q to leave
+:sr            every query it ran, with the rows each one returned
+:ref           the reference answer      :err  the traceback of what you ran
 :sql           the SQL your last attempt ran, inline (repeats collapsed)
 :diff          reference answer vs yours
 :n :p :g N     next / previous / jump to N
