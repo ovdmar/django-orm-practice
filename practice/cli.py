@@ -264,11 +264,16 @@ class Session:
             share = max(3, budget // left)
             prefix = f"{i}. " + (f"x{repeats} " if repeats > 1 else "")
             response = [] if att.wrote else self._response_lines(sql, width)
-            room_for_rows = min(len(response), max(0, share - 2), 4)
+            # a blank line between the statement and what it returned, when it fits
+            room_for_rows = min(len(response) + 1, max(0, share - 2), 5)
+            if room_for_rows >= 3:
+                returned = [("", None)] + response[:room_for_rows - 1]
+            else:
+                returned = response[:room_for_rows]
             clauses = engine.pick_clauses(
                 engine.wrap_sql(engine.shorten_sql(sql, width - 6), width, prefix=prefix),
-                max(1, share - room_for_rows))
-            block = [(line, dim) for line in clauses] + response[:room_for_rows]
+                max(1, share - len(returned)))
+            block = [(line, dim) for line in clauses] + returned
             out += block
             budget -= len(block)
             left -= 1
