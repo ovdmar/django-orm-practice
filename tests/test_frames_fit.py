@@ -35,6 +35,8 @@ def main():
     from practice.bootstrap import build_database
 
     build_database()
+    from django.db import connection
+
     from practice import engine
     from practice.cli import Session
     from practice.exercises import EXERCISES
@@ -44,6 +46,7 @@ def main():
         for height in HEIGHTS:
           for colour in COLOURS:
             os.environ["COLUMNS"], os.environ["LINES"] = width, str(height)
+            connection.queries_log.clear()   # 24 passes would overflow its 9000 cap
             session = Session(start=1, color=colour)
             session.ink.on = colour          # isatty() is False under the test runner
             room, tallest, widest, columns = session.screen_room(), 0, 0, None
