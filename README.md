@@ -56,7 +56,7 @@ Every screen has the same three columns — the task, the schema, your attempt (
 right) — with one line of shortcuts above it, so nothing has to be memorised and nothing moves when an attempt lands:
 
 ```
-:h help   :s solution   :hint   :v view   :diff   :sql   :n next   :p prev   :g N goto   :l list   :m models   alt+up/dn screens   ^c clear   ^d quit
+:h help  tab completes fields  :s solution  :hint  :dr result  :sr sql+rows  :diff  :sql  :n next  :p prev  :g N goto  :l list  :m models
 ────────────────────────────────────────────────────────────────────────────────────
 Exercise #54 of 86 · easy
 ────────────────────────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ TypeError: ...remove() argument after * must be an iterable, not int
   2 f = a.followers.order_by("id").values_list("id",
      flat=True).first()
 > 3 a.followers.remove(*f)
-:v err for the traceback
+:err for the traceback
 ```
 
 ### Screens
