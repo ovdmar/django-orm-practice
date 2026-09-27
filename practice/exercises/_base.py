@@ -59,10 +59,16 @@ class Exercise:
 
 
 def collect(*modules):
-    out = []
-    for mod in modules:
-        for ex in mod.EXERCISES:
-            ex.number = len(out) + 1
-            ex.contract = consume_source(ex.consume)
-            out.append(ex)
-    return out
+    """Number the exercises so that a number means the same thing to everyone.
+
+    The order is the source order, stably re-sorted by the date each exercise was
+    added: a new one therefore lands at the end and every existing number stays put,
+    whichever file it was written into. Nothing here reads local state, so exercise
+    #12 is #12 on every clone of a given commit - which is what makes "feedback on
+    #12" a thing you can act on.
+    """
+    found = [ex for mod in modules for ex in mod.EXERCISES]
+    for position, ex in enumerate(sorted(found, key=lambda ex: ex.added)):
+        ex.number = position + 1
+        ex.contract = consume_source(ex.consume)
+    return sorted(found, key=lambda ex: ex.number)

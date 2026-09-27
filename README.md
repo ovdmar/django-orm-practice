@@ -61,6 +61,15 @@ easy 9/31
 `+` solved within budget, `~` solved but over it, `.` not yet, `@` you are here — in the
 exercises' own order, so it fills up left to right.
 
+### Exercise numbers are the same for everyone
+
+`Exercise #12` is the same exercise on every clone of a given commit: numbering comes from the
+source alone, never from local state, so progress or practice mode cannot shift it. Adding an
+exercise cannot shift it either — `collect()` orders by the date each exercise was added, so a new
+one takes the next free number wherever in the files it is written, and every existing number
+stays put. `tests/test_numbering.py` holds that (it inserts a dated exercise mid-file and asserts
+nothing else moved), which is what makes "feedback on #12" actionable.
+
 Progress lives in `~/.config/django-orm-practice/progress.json` (or under `$XDG_CONFIG_HOME`),
 keyed by each exercise's slug rather than its number. That is deliberate: exercises can be
 renumbered, reordered or added and your history still lines up. Each one also records the date it
