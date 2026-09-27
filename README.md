@@ -38,11 +38,37 @@ no pip — no sudo needed.)
 ./orm
 ```
 
-With no arguments it resumes where you left off. Progress lives in `.progress.json`.
+It asks which difficulty to practise and then works through that one:
+
+```
+  practice mode:  [1] easy 9/31   [2] medium 0/41   [3] hard 0/14   [enter = easy]
+  >
+```
+
+The default is the first difficulty that still has something left, so pressing enter keeps you
+moving: finish the easy ones and it says `easy is done - moving on to medium` and carries on from
+there. Within a difficulty you get the exercises you have **not** solved first, so a session never
+starts by re-asking what you already know. `:mode easy|medium|hard` switches at any time (to redo
+the hard ones, say), and `:g N` follows an exercise into its own difficulty.
+
+The task column heads with a map of where you are in the level:
+
+```
+easy 9/31
+++~++~++~@.....................
+```
+
+`+` solved within budget, `~` solved but over it, `.` not yet, `@` you are here — in the
+exercises' own order, so it fills up left to right.
+
+Progress lives in `~/.config/django-orm-practice/progress.json` (or under `$XDG_CONFIG_HOME`),
+keyed by each exercise's slug rather than its number. That is deliberate: exercises can be
+renumbered, reordered or added and your history still lines up. Each one also records the date it
+was added, so new exercises queue up behind the ones already there.
 
 ```bash
 ./orm --from 41            # start at exercise 41
-./orm --level hard         # start at the first hard exercise
+./orm --level hard         # practise the hard ones, no prompt
 ./orm --only 54            # drill exercise 54 alone, do not advance
 ./orm --section prefetch_related
 ./orm --list               # all exercises, with what you have solved
