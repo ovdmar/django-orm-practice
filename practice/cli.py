@@ -45,6 +45,7 @@ COMMANDS = """
 
 
 Frame = collections.namedtuple("Frame", "number lines")
+ANSI = re.compile(r"\033\[[0-9;]*m")
 
 KEYS = [                      # in priority order: the tail is dropped if it will not fit
     (":h", "help"), ("tab", "completes fields"), (":s", "solution"), (":hint", ""),
@@ -159,8 +160,10 @@ class Session:
                 within = best is not None and target is not None and best <= target
                 marks.append(ink.green("+") if within else ink.yellow("~"))
         solved = sum(1 for ex in self.queue if self.solved(ex))
-        return [self.level_ink_name(self.level) + ink.dim(f" {solved}/{len(self.queue)}"),
-                "".join(marks)[:width * 4]]
+        per_line = max(8, width - 1)          # count the marks, not their colour codes
+        rows = [marks[at:at + per_line] for at in range(0, len(marks), per_line)]
+        return [self.level_ink_name(self.level) + ink.dim(f" {solved}/{len(self.queue)}")] \
+            + ["".join(row) for row in rows]
 
     def level_ink_name(self, level):
         colour = {"easy": self.ink.green, "medium": self.ink.yellow,
@@ -223,9 +226,30 @@ class Session:
                              subsequent_indent=hang) or [indent.rstrip()]
 
     @staticmethod
-    def _clip(text, width):
+    def _visible(text):
+        """The width a line actually occupies - colour codes take no columns."""
+        return len(ANSI.sub("", text))
+
+    @classmethod
+    def _clip(cls, text, width):
+        """Truncate to `width` visible columns without cutting an escape in half."""
         text = text.rstrip()
-        return text if len(text) <= width else text[: width - 1] + "…"
+        if cls._visible(text) <= width:
+            return text
+        kept, shown, i = [], 0, 0
+        while i < len(text) and shown < width - 1:
+            escape = ANSI.match(text, i)
+            if escape:
+                kept.append(escape.group())
+                i = escape.end()
+                continue
+            kept.append(text[i])
+            i += 1
+            shown += 1
+        kept.append("…")
+        if "\033[" in text:
+            kept.append("\033[0m")
+        return "".join(kept)
 
     def _grid(self, cells, plan):
         """cells: {column name: [(text, style), ...]} clipped into place."""
@@ -236,7 +260,8 @@ class Session:
             for name, w in plan:
                 text, style = (cells.get(name, []) + [("", None)] * height)[i]
                 text = self._clip(text, w)
-                parts.append((style(text) if style else text) + " " * (w - len(text)))
+                padding = " " * max(0, w - self._visible(text))
+                parts.append((style(text) if style else text) + padding)
             out.append(ink.dim(" │ ").join(parts).rstrip())
         return out
 

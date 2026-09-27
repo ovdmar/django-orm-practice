@@ -18,6 +18,17 @@ sys.path.insert(0, ROOT)
 ANSI = re.compile(r"\033\[[0-9;]*m")
 HEIGHTS = (24, 30, 45, 60)
 WIDTHS = ("100", "150", "200")
+COLOURS = (False, True)          # colour codes must not be counted as columns
+
+
+def separators(line):
+    """Visible column of every column divider on this line."""
+    plain, columns, width = ANSI.sub("", line), [], 0
+    for char in plain:
+        if char == "│":
+            columns.append(width)
+        width += 1
+    return tuple(columns)
 
 
 def main():
@@ -31,9 +42,11 @@ def main():
     failures = []
     for width in WIDTHS:
         for height in HEIGHTS:
+          for colour in COLOURS:
             os.environ["COLUMNS"], os.environ["LINES"] = width, str(height)
-            session = Session(start=1, color=False)
-            room, tallest, widest = session.screen_room(), 0, 0
+            session = Session(start=1, color=colour)
+            session.ink.on = colour          # isatty() is False under the test runner
+            room, tallest, widest, columns = session.screen_room(), 0, 0, None
             for ex in EXERCISES:
                 session.enter_level(ex.level)   # so the progress strip is measured too
                 session.current = ex
@@ -50,9 +63,19 @@ def main():
                         if plain > int(width):
                             failures.append((width, height, ex.number, "wide",
                                              plain, int(width)))
+                        # every gridded line must put its dividers in the same columns,
+                        # which is what breaks when colour codes are counted as width
+                        here = separators(line)
+                        if here:
+                            if columns is None:
+                                columns = here
+                            elif here != columns:
+                                failures.append((width, height, ex.number, "ragged",
+                                                 here, columns))
             ok = tallest <= room and widest <= int(width)
-            print(f"  {width}x{height}: tallest {tallest}/{room} lines, "
-                  f"widest {widest}/{width} columns  {'ok' if ok else 'OVERFLOW'}")
+            print(f"  {width}x{height}{' colour' if colour else '      '}: "
+                  f"tallest {tallest}/{room} lines, widest {widest}/{width} columns  "
+                  f"{'ok' if ok else 'OVERFLOW'}")
     for width, height, number, kind, got, limit in failures[:10]:
         print(f"  FAIL {width}x{height} exercise #{number}: too {kind}, {got} vs {limit}")
     print("frames fit" if not failures else f"{len(failures)} overflowing screen(s)")
